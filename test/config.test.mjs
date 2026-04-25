@@ -46,6 +46,14 @@ test("createConfigEnvironment keeps runtime variables ahead of env file values",
   assert.equal(appConfig.imageApi.generationUrl, "https://runtime.example.test/generations");
 });
 
+test("createAppConfig keeps default signup credit and generation cost at ten credits", () => {
+  const appConfig = createAppConfig(Object.freeze({}));
+
+  assert.equal(appConfig.signupCreditCents, 50);
+  assert.equal(appConfig.textToImageUnitCostCents, 10);
+  assert.equal(appConfig.imageEditUnitCostCents, 10);
+});
+
 // 创建临时 .env 文件，隔离配置加载测试
 async function createTemporaryEnvFile(lines) {
   const directory = await mkdtemp(join(tmpdir(), "create-img-config-"));

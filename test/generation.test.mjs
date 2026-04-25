@@ -23,6 +23,15 @@ test("GenerationRequest trims prompt and keeps image mode metadata", () => {
   assert.equal(request.imageName, "reference.png");
 });
 
+test("GenerationRequest defaults to square ratio and one image", () => {
+  const request = new GenerationRequest({
+    prompt: "minimal product shot"
+  });
+
+  assert.equal(request.ratio, "1:1");
+  assert.equal(request.quantity, 1);
+});
+
 test("createPromptSeed returns a stable positive seed for the same prompt", () => {
   const firstSeed = createPromptSeed("quiet luxury product shot");
   const secondSeed = createPromptSeed("quiet luxury product shot");

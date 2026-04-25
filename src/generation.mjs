@@ -8,6 +8,8 @@ export const IMAGE_RATIOS = Object.freeze(["1:1", "3:4", "4:3", "16:9", "9:16"])
 export const DEFAULT_GENERATION_MODEL = "Aurora XL v2";
 
 export const DEFAULT_IMAGE_SIZE = "1024x768";
+export const DEFAULT_IMAGE_RATIO = "1:1";
+export const DEFAULT_IMAGE_QUANTITY = 1;
 
 // 生成请求对象，统一清洗并保存前端传入的图片生成参数
 export class GenerationRequest {
@@ -16,11 +18,11 @@ export class GenerationRequest {
     this.prompt = this.#trimText(input.prompt);
     this.negativePrompt = this.#trimText(input.negativePrompt);
     this.imageName = input.imageName ?? "";
-    this.ratio = input.ratio ?? "4:3";
+    this.ratio = input.ratio ?? DEFAULT_IMAGE_RATIO;
     this.style = input.style ?? "product";
     this.modelName = input.modelName ?? input.model ?? DEFAULT_GENERATION_MODEL;
     this.fidelity = Number(input.fidelity ?? 75);
-    this.quantity = Number(input.quantity ?? 1);
+    this.quantity = Number(input.quantity ?? DEFAULT_IMAGE_QUANTITY);
     this.isPublic = Boolean(input.isPublic);
   }
 

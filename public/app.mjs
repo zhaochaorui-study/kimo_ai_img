@@ -6,8 +6,8 @@ const state = {
   prompt: "",
   modelName: "Kimo Image",
   style: "产品摄影",
-  ratio: "4:3",
-  quantity: 4,
+  ratio: "1:1",
+  quantity: 1,
   referenceImage: "",
   referenceImageName: "",
   gallery: [],
@@ -124,7 +124,7 @@ function renderAuth() {
       <div class="auth-brand">
         <div class="brand-icon-large">🐱</div>
         <h1>创想图像工作室</h1>
-        <p>登录后自动获得 500 积分额度</p>
+        <p>登录后自动获得 50 积分额度</p>
         <div class="auth-deco">用想象力创造无限可能</div>
       </div>
       <div class="auth-card">
@@ -612,7 +612,7 @@ function renderDetail() {
         <div class="meta-list">
           <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
           <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
-          <span>比例</span><strong>${escapeHtml(item.ratio)} (1024 x 768)</strong>
+          <span>比例</span><strong>${escapeHtml(item.ratio)} (${getResolution(item.ratio)})</strong>
           <span>种子</span><strong>${item.id}</strong>
           <span>CFG</span><strong>7.0</strong>
           <span>采样器</span><strong>DPM++ 2M Karras</strong>
@@ -1028,7 +1028,7 @@ function galleryItems() {
     id: -index - 1,
     prompt: "极简产品摄影，柔和自然光，米色背景，陶瓷花瓶和石材构图",
     modelName: "Kimo Image",
-    ratio: "4:3",
+    ratio: "1:1",
     costCents: 0,
     status: "demo",
     images: [image]
@@ -1042,7 +1042,7 @@ function mockThumbs() {
 
 // 计算预计扣费
 function calculateCostCents() {
-  const unit = state.mode === "image-prompt" ? 120 : 100;
+  const unit = 10;
 
   return unit * state.quantity;
 }
