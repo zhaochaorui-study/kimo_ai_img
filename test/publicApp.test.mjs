@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const PUBLIC_APP_PATH = new URL("../public/app.mjs", import.meta.url);
+const PUBLIC_STYLE_PATH = new URL("../public/styles.css", import.meta.url);
 
 test("public app defaults to one square image and ten credits per generation", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
@@ -56,4 +57,14 @@ test("workbench mode is only switched from sidebar navigation", async () => {
   assert.match(source, /currentModuleLabel\(\)/);
   assert.doesNotMatch(source, /data-mode=/);
   assert.doesNotMatch(source, /event\.target\.closest\("\[data-mode\]"\)/);
+});
+
+test("default preview uses UI empty state instead of mock still life", async () => {
+  const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /content:\s*"等待生成"/);
+  assert.match(source, /\.mock-still-life::before/);
+  assert.match(source, /border:\s*1px dashed rgba\(255, 143, 163, 0\.38\)/);
+  assert.doesNotMatch(source, /radial-gradient\(circle at 50% 54%/);
+  assert.doesNotMatch(source, /linear-gradient\(90deg, transparent 0 27%, #8b6f4e/);
 });

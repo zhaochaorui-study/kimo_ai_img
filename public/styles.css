@@ -612,14 +612,44 @@ input {
 .mock-still-life {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
   background:
-    linear-gradient(100deg, transparent 0 44%, rgba(255, 255, 255, 0.25) 44% 48%, transparent 48%),
-    radial-gradient(circle at 50% 54%, #f2e8d5 0 9%, #c1b19e 10% 11%, transparent 12%),
-    radial-gradient(ellipse at 51% 56%, #e8dbc7 0 14%, #b8aa98 15% 16%, transparent 17%),
-    linear-gradient(180deg, transparent 0 63%, #a49380 64% 70%, #715f4e 71% 72%, transparent 73%),
-    linear-gradient(90deg, transparent 0 27%, #8b6f4e 27% 28%, transparent 29%),
-    radial-gradient(circle at 29% 28%, #a16f32 0 1%, transparent 1.5%),
-    linear-gradient(135deg, #e8dfd2 0%, #c7bba8 100%);
+    radial-gradient(circle at 18% 18%, rgba(255, 143, 163, 0.16), transparent 28%),
+    radial-gradient(circle at 82% 78%, rgba(255, 179, 71, 0.16), transparent 30%),
+    linear-gradient(135deg, #fffdfa 0%, #fff4f7 52%, #fff8f0 100%);
+  border: 1px dashed rgba(255, 143, 163, 0.38);
+}
+
+.mock-still-life::before {
+  content: "";
+  width: min(132px, 36%);
+  aspect-ratio: 1;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 35% 34%, rgba(255, 143, 163, 0.52) 0 7%, transparent 8%),
+    linear-gradient(135deg, transparent 49%, rgba(255, 179, 71, 0.4) 50% 60%, transparent 61%),
+    linear-gradient(45deg, transparent 51%, rgba(255, 143, 163, 0.36) 52% 64%, transparent 65%),
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(135deg, rgba(255, 143, 163, 0.78), rgba(255, 179, 71, 0.72)) border-box;
+  border: 2px solid transparent;
+  box-shadow: 0 18px 44px rgba(255, 143, 163, 0.18);
+}
+
+.mock-still-life::after {
+  content: "等待生成";
+  position: absolute;
+  left: 50%;
+  top: calc(50% + min(86px, 23%));
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  box-shadow: 0 10px 26px rgba(255, 143, 163, 0.12);
 }
 
 .preview-badge {
@@ -697,6 +727,19 @@ input {
 
 .thumb .mock-still-life {
   transform: scale(1.22);
+}
+
+.thumb .mock-still-life::after,
+.gallery-item .mock-still-life::after,
+.variant-thumb .mock-still-life::after {
+  display: none;
+}
+
+.thumb .mock-still-life::before,
+.gallery-item .mock-still-life::before,
+.variant-thumb .mock-still-life::before {
+  border-radius: 16px;
+  width: min(72px, 42%);
 }
 
 /* Settings Panel */
