@@ -3,5 +3,7 @@
 !.env.example
 node_modules/
 storage/
+.run/
+logs/
 .DS_Store
 npm-debug.log*
