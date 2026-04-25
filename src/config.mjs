@@ -62,7 +62,9 @@ function createImageApiConfig(runtimeEnv) {
     key: readConfigValue(runtimeEnv, "KIMO_API_KEY", ""),
     generationUrl: readConfigValue(runtimeEnv, "KIMO_GENERATION_URL", createImageApiUrl(baseUrl, "/v1/images/generations")),
     editUrl: readConfigValue(runtimeEnv, "KIMO_EDIT_URL", createImageApiUrl(baseUrl, "/v1/images/edits")),
-    model: readConfigValue(runtimeEnv, "KIMO_IMAGE_MODEL", "gpt-image-1")
+    model: readConfigValue(runtimeEnv, "KIMO_IMAGE_MODEL", "gpt-image-1"),
+    timeoutMs: readConfigNumber(runtimeEnv, "KIMO_API_TIMEOUT_MS", 300000),
+    maxRetries: readConfigNumber(runtimeEnv, "KIMO_API_MAX_RETRIES", 1)
   });
 }
 

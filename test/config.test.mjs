@@ -66,6 +66,16 @@ test("createAppConfig keeps explicit image endpoints ahead of API base URL", () 
   assert.equal(appConfig.imageApi.editUrl, "http://127.0.0.1:4000/custom/edits");
 });
 
+test("createAppConfig exposes image API timeout and retry settings", () => {
+  const appConfig = createAppConfig(Object.freeze({
+    KIMO_API_TIMEOUT_MS: "120000",
+    KIMO_API_MAX_RETRIES: "2"
+  }));
+
+  assert.equal(appConfig.imageApi.timeoutMs, 120000);
+  assert.equal(appConfig.imageApi.maxRetries, 2);
+});
+
 test("createAppConfig keeps default signup credit and generation cost at ten credits", () => {
   const appConfig = createAppConfig(Object.freeze({}));
 
