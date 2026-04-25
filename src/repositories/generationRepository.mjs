@@ -54,6 +54,27 @@ export class GenerationRepository {
     return rows.map((row) => this.#mapGenerationRow(row));
   }
 
+  // 查询当前用户已加入公共画廊的生成记录
+  async listPublicByUser(userId, limit = 60) {
+    const safeLimit = normalizeLimit(limit);
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM generations WHERE user_id = ? AND is_public = 1 AND status = 'succeeded' ORDER BY created_at DESC LIMIT ${safeLimit}`,
+      [userId]
+    );
+
+    return rows.map((row) => this.#mapGenerationRow(row));
+  }
+
+  // 将当前用户的生成记录移出公共画廊，不删除历史记录
+  async removeFromPublicByUser(userId, generationId) {
+    const [result] = await this.pool.execute(
+      "UPDATE generations SET is_public = 0 WHERE user_id = ? AND id = ? AND is_public = 1",
+      [userId, generationId]
+    );
+
+    return result.affectedRows > 0;
+  }
+
   // 删除当前用户自己的生成记录
   async deleteByUser(userId, generationId) {
     const [result] = await this.pool.execute(

@@ -42,6 +42,20 @@ export class ImageService {
     return this.generationRepository.listPublic();
   }
 
+  // 查询当前用户已加入公共画廊的图片
+  async listMyGallery(userId) {
+    return this.generationRepository.listPublicByUser(userId);
+  }
+
+  // 将当前用户的图片移出公共画廊，保留历史记录
+  async removeFromMyGallery(userId, generationId) {
+    const removed = await this.generationRepository.removeFromPublicByUser(userId, generationId);
+
+    if (!removed) {
+      throw new Error("画廊记录不存在");
+    }
+  }
+
   // 删除用户自己的历史记录
   async deleteHistoryItem(userId, generationId) {
     const deleted = await this.generationRepository.deleteByUser(userId, generationId);

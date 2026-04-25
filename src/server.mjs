@@ -149,6 +149,8 @@ async function routeAuthedApi(request, response, services, url, session) {
   if (request.method === "POST" && url.pathname === "/api/wallet/recharge") return routes.recharge();
   if (request.method === "GET" && url.pathname === "/api/gallery") return routes.gallery();
   if (request.method === "DELETE" && url.pathname.startsWith("/api/gallery/")) return routes.deleteGalleryItem(url);
+  if (request.method === "GET" && url.pathname === "/api/my-gallery") return routes.myGallery();
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/my-gallery/")) return routes.removeMyGalleryItem(url);
   if (request.method === "POST" && url.pathname === "/api/images/generations") return routes.textToImage();
   if (request.method === "POST" && url.pathname === "/api/images/edits") return routes.imageEdit();
 
@@ -184,6 +186,21 @@ class AuthedRouteHandlers {
     const items = await this.services.imageService.listHistory(this.session.userId);
 
     sendOk(this.response, { items });
+  }
+
+  // 查询当前用户已加入公共画廊的图片
+  async myGallery() {
+    const items = await this.services.imageService.listMyGallery(this.session.userId);
+
+    sendOk(this.response, { items });
+  }
+
+  // 将当前用户的图片移出公共画廊
+  async removeMyGalleryItem(url) {
+    const generationId = Number(url.pathname.split("/").pop());
+
+    await this.services.imageService.removeFromMyGallery(this.session.userId, generationId);
+    sendOk(this.response);
   }
 
   // 删除当前用户自己的历史图片

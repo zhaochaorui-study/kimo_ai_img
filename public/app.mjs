@@ -11,8 +11,10 @@ const state = {
   referenceImage: "",
   referenceImageName: "",
   gallery: [],
+  myGallery: [],
   history: [],
   selectedId: null,
+  selectedMyGalleryId: null,
   selectedHistoryId: null,
   generatedImages: [],
   isGenerating: false,
@@ -80,7 +82,7 @@ async function loadSession() {
 async function refreshData() {
   if (state.user) {
     // 同时拉取公共画廊和个人历史，避免登录后公共画廊被空历史覆盖
-    await Promise.all([refreshWallet(), refreshPublicGallery(), refreshHistory()]);
+    await Promise.all([refreshWallet(), refreshPublicGallery(), refreshMyGallery(), refreshHistory()]);
   } else {
     await refreshPublicGallery();
   }
@@ -101,6 +103,14 @@ async function refreshHistory() {
 
   state.history = payload.items;
   state.selectedHistoryId = selectExistingOrFirst(state.selectedHistoryId, state.history);
+}
+
+// 刷新当前用户已加入公共画廊的图片
+async function refreshMyGallery() {
+  const payload = await api("/api/my-gallery");
+
+  state.myGallery = payload.items;
+  state.selectedMyGalleryId = selectExistingOrFirst(state.selectedMyGalleryId, state.myGallery);
 }
 
 // 刷新公共画廊
@@ -251,6 +261,7 @@ function renderTopbar() {
       <nav class="top-nav">
         ${state.user ? topButton("workspace", "工作台") : ""}
         ${topButton("gallery", "画廊")}
+        ${state.user ? topButton("my-gallery", "我的画廊") : ""}
         ${state.user ? topButton("history", "历史") : ""}
         ${state.user ? topButton("resources", "资源") : ""}
       </nav>
@@ -288,6 +299,7 @@ function renderSidebar() {
     ["workspace", "text", "文生图"],
     ["workspace-edit", "image", "图文生图"],
     ["gallery", "grid", "画廊"],
+    ["my-gallery", "grid", "我的画廊"],
     ["history", "clock", "历史"],
     ["settings", "settings", "设置"],
     ["feedback", "help", "帮助与反馈"]
@@ -336,6 +348,7 @@ function resolveSideActive(target) {
 // 渲染当前主视图
 function renderCurrentView() {
   if (state.view === "gallery") return renderGallery();
+  if (state.view === "my-gallery") return renderMyGallery();
   if (state.view === "history") return renderDetail();
 
   return renderWorkbench();
@@ -355,10 +368,7 @@ function renderWorkbench() {
 function renderPromptPanel() {
   return `
     <aside class="tool-panel">
-      <div class="tabs">
-        ${modeTab("text-to-image", "文生图")}
-        ${modeTab("image-prompt", "图文生图")}
-      </div>
+      ${renderCurrentModuleTab()}
       ${state.mode === "image-prompt" ? renderUploadField() : ""}
       <div class="field">
         <label>提示词${state.mode === "image-prompt" ? "（可选）" : ""}</label>
@@ -379,9 +389,14 @@ function renderPromptPanel() {
   `;
 }
 
-// 渲染模式页签
-function modeTab(mode, label) {
-  return `<button class="tab-btn ${state.mode === mode ? "is-active" : ""}" data-mode="${mode}">${label}</button>`;
+// 渲染当前模块标识，模块切换统一交给左侧导航
+function renderCurrentModuleTab() {
+  return `<div class="tabs module-tabs"><span class="tab-btn is-active">${currentModuleLabel()}</span></div>`;
+}
+
+// 获取当前工作台模块名称，保持和左侧导航一致
+function currentModuleLabel() {
+  return state.mode === "image-prompt" ? "图文生图" : "文生图";
 }
 
 // 渲染参考图上传区域
@@ -603,6 +618,33 @@ function renderGallery() {
   `;
 }
 
+// 渲染我的画廊页面，只展示当前用户已公开的图片
+function renderMyGallery() {
+  return `
+    <section class="gallery-layout">
+      <div>
+        <div class="gallery-toolbar">
+          <h2 class="gallery-title">我的画廊</h2>
+          <button class="chip is-active">已加入画廊</button>
+        </div>
+        ${renderMyGalleryGrid()}
+      </div>
+      ${renderMyGalleryDetailPanel()}
+    </section>
+  `;
+}
+
+// 渲染我的画廊图片网格，空数据时展示明确空态
+function renderMyGalleryGrid() {
+  const items = myGalleryItems();
+
+  if (!items.length) {
+    return "<p class=\"empty-state\">暂无加入画廊的图片。</p>";
+  }
+
+  return `<div class="gallery-grid">${items.map(renderMyGalleryItem).join("")}</div>`;
+}
+
 // 渲染画廊单个项目
 function renderGalleryItem(item) {
   const image = item.images?.[0] ?? "";
@@ -611,6 +653,18 @@ function renderGalleryItem(item) {
     <article class="gallery-item">
       <button data-select="${item.id}">${image ? `<img src="${image}" alt="生成图">` : "<div class=\"mock-still-life\"></div>"}</button>
       <span class="gallery-fav">${icon("heart")}</span>
+    </article>
+  `;
+}
+
+// 渲染我的画廊单个项目，提供移出画廊入口
+function renderMyGalleryItem(item) {
+  const image = item.images?.[0] ?? "";
+
+  return `
+    <article class="gallery-item my-gallery-item">
+      <button data-select="${item.id}">${image ? `<img src="${image}" alt="我的画廊生成图">` : "<div class=\"mock-still-life\"></div>"}</button>
+      <button class="gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </article>
   `;
 }
@@ -643,6 +697,29 @@ function renderDetailPanel() {
       </div>
       <button class="secondary-btn" data-action="reuse-prompt" style="margin-bottom:8px">复用提示词</button>
       <button class="secondary-btn" data-action="download" style="margin-bottom:8px">下载</button>
+    </aside>
+  `;
+}
+
+// 渲染我的画廊右侧详情面板
+function renderMyGalleryDetailPanel() {
+  const item = selectedMyGalleryItem();
+
+  if (!item) return "<aside class=\"detail-panel\"><p class=\"empty-state\">暂无加入画廊的图片</p></aside>";
+
+  return `
+    <aside class="detail-panel">
+      <div class="thumb">${item.images?.[0] ? `<img class="generated-image" src="${item.images[0]}" alt="我的画廊选中图">` : "<div class=\"mock-still-life\"></div>"}</div>
+      <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
+      <div class="meta-list">
+        <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
+        <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
+        <span>比例</span><strong>${escapeHtml(item.ratio)}</strong>
+        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
+        <span>费用</span><strong>${item.costCents ?? 0} 积分</strong>
+      </div>
+      <button class="secondary-btn" data-action="download" style="margin-top:14px;margin-bottom:8px">下载</button>
+      <button class="danger-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </aside>
   `;
 }
@@ -749,9 +826,6 @@ function handleAppClick(event) {
   const side = event.target.closest("[data-side]");
   if (side) { setSide(side.dataset.side); return; }
 
-  const mode = event.target.closest("[data-mode]");
-  if (mode) { setMode(mode.dataset.mode); return; }
-
   const chip = event.target.closest("[data-chip]");
   if (chip) { setChip(chip); return; }
 
@@ -775,6 +849,7 @@ function handleAppClick(event) {
   else if (name === "logout") { state.userMenuOpen = false; logout(); }
   else if (name === "reuse-prompt") reusePrompt();
   else if (name === "download") downloadSelectedImage();
+  else if (name === "remove-from-my-gallery") removeFromMyGallery(action);
   else if (name === "delete-item") deleteSelectedItem();
 }
 
@@ -915,8 +990,8 @@ function handleReferenceFile(event) {
 }
 
 // 需要登录才能访问的视图
-const AUTH_REQUIRED_VIEWS = new Set(["workspace", "history", "resources"]);
-const AUTH_REQUIRED_SIDES = new Set(["workspace", "workspace-edit", "history", "models", "styles", "settings"]);
+const AUTH_REQUIRED_VIEWS = new Set(["workspace", "my-gallery", "history", "resources"]);
+const AUTH_REQUIRED_SIDES = new Set(["workspace", "workspace-edit", "my-gallery", "history", "models", "styles", "settings"]);
 
 // 切换主视图
 function setView(view) {
@@ -949,12 +1024,6 @@ function setSide(target) {
   render();
 }
 
-// 切换生成模式
-function setMode(mode) {
-  state.mode = mode;
-  render();
-}
-
 // 更新芯片组选中值
 function setChip(node) {
   const value = node.dataset.value;
@@ -977,6 +1046,12 @@ function toggleSetting(key) {
 
 // 选择画廊项目
 function selectGallery(id) {
+  if (state.view === "my-gallery") {
+    state.selectedMyGalleryId = id;
+    render();
+    return;
+  }
+
   state.selectedId = id;
   render();
 }
@@ -994,7 +1069,7 @@ function reusePrompt() {
 
 // 下载当前选中图片
 function downloadSelectedImage() {
-  const item = state.view === "history" ? selectedHistoryItem() : selectedGalleryItem();
+  const item = selectedVisibleImageItem();
   const image = item?.images?.[0] ?? state.generatedImages[0];
 
   if (!image) return showToast("暂无可下载图片", "error");
@@ -1003,6 +1078,21 @@ function downloadSelectedImage() {
   link.href = image;
   link.download = `create-img-${Date.now()}.png`;
   link.click();
+}
+
+// 将当前用户的图片移出公共画廊并刷新相关列表
+async function removeFromMyGallery(action) {
+  const itemId = Number(action.dataset.removeGallery);
+  const item = myGalleryItems().find((galleryItem) => Number(galleryItem.id) === itemId) ?? selectedMyGalleryItem();
+
+  if (!item || item.id < 0) return;
+
+  await runAction(async () => {
+    await api(`/api/my-gallery/${item.id}`, { method: "DELETE" });
+    state.selectedMyGalleryId = null;
+    await Promise.all([refreshMyGallery(), refreshPublicGallery(), refreshHistory()]);
+    showToast("已移出画廊", "success");
+  });
 }
 
 // 删除当前选中的历史记录
@@ -1100,9 +1190,22 @@ function selectedGalleryItem() {
   return findSelectedItem(state.gallery, state.selectedId);
 }
 
+// 获取当前选中的我的画廊项
+function selectedMyGalleryItem() {
+  return findSelectedItem(state.myGallery, state.selectedMyGalleryId);
+}
+
 // 获取当前选中的个人历史项
 function selectedHistoryItem() {
   return findSelectedItem(state.history, state.selectedHistoryId);
+}
+
+// 根据当前视图返回下载所需的选中图片项
+function selectedVisibleImageItem() {
+  if (state.view === "history") return selectedHistoryItem();
+  if (state.view === "my-gallery") return selectedMyGalleryItem();
+
+  return selectedGalleryItem();
 }
 
 // 按 ID 查找选中项，找不到时回退到列表第一项
@@ -1134,6 +1237,11 @@ function galleryItems() {
     status: "demo",
     images: [image]
   }));
+}
+
+// 获取我的画廊真实项目，不展示公共画廊的占位数据
+function myGalleryItems() {
+  return state.myGallery.filter((item) => item.status === "succeeded" && item.isPublic && item.images?.length);
 }
 
 // 创建本地占位缩略图标识

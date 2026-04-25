@@ -343,6 +343,9 @@ button {
 }
 
 .tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   height: 40px;
   border-radius: var(--radius-md);
@@ -352,6 +355,11 @@ button {
   background: var(--panel-soft);
   border: 1px solid var(--line);
   transition: all 0.2s ease;
+}
+
+.module-tabs .tab-btn {
+  cursor: default;
+  pointer-events: none;
 }
 
 .tab-btn.is-active {
@@ -938,6 +946,35 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--primary);
   backdrop-filter: blur(4px);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.gallery-remove-btn {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: auto !important;
+  min-height: 34px !important;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #b72f46;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(115, 35, 53, 0.16);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.my-gallery-item:hover .gallery-remove-btn,
+.gallery-remove-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gallery-remove-btn:hover {
+  background: #fff3f5 !important;
 }
 
 /* Detail Panel */
