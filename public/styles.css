@@ -34,7 +34,6 @@
 
 body {
   margin: 0;
-  min-width: 1200px;
   color: var(--ink);
   background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg) 50%, var(--bg-gradient-end) 100%);
   min-height: 100vh;
@@ -1949,5 +1948,276 @@ input[type="range"]::-webkit-slider-thumb {
 
   .sidebar {
     display: none;
+  }
+}
+
+.bottom-nav {
+  display: none;
+}
+
+/* Mobile (<= 768px) */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    min-width: auto;
+  }
+
+  .app-shell {
+    padding: 0;
+  }
+
+  .studio-frame {
+    border-radius: 0;
+    height: 100dvh;
+    box-shadow: none;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .topbar {
+    padding: 0 12px;
+    height: 52px;
+  }
+
+  .brand {
+    width: auto;
+    gap: 6px;
+  }
+
+  .brand span:not(.brand-icon) {
+    display: none;
+  }
+
+  .top-nav {
+    display: none;
+  }
+
+  .layout {
+    height: calc(100dvh - 52px - 64px);
+  }
+
+  .workspace {
+    padding: 12px;
+    overflow-y: auto;
+  }
+
+  .stage {
+    overflow-y: auto;
+    min-height: 240px;
+    gap: 8px;
+  }
+
+  .workbench-grid {
+    gap: 12px;
+    height: auto;
+  }
+
+  .tool-panel {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .gallery-layout {
+    gap: 12px;
+    height: auto;
+    overflow-y: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-grid {
+    column-count: 1;
+    max-height: none;
+  }
+
+  .gallery-item button {
+    min-height: 80px;
+  }
+
+  .gallery-remove-btn {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .detail-hero {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .detail-image {
+    max-height: 50vh;
+  }
+
+  .detail-panel {
+    max-height: none;
+  }
+
+  .thumb-strip {
+    overflow-x: auto;
+    grid-template-columns: 32px repeat(4, minmax(70px, 1fr)) 32px;
+  }
+
+  .modal {
+    width: calc(100% - 32px);
+    padding: 20px;
+  }
+
+  .modal-backdrop {
+    padding: 16px;
+    align-items: flex-end;
+  }
+
+  .toast {
+    left: 16px;
+    right: 16px;
+    bottom: 80px;
+    max-width: none;
+  }
+
+  .chip-row.is-ratio {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .chip-row.is-quantity {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .compare-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .arrow-circle {
+    transform: rotate(90deg);
+    margin: 8px auto;
+  }
+
+  .compare-card {
+    min-height: 200px;
+  }
+
+  .preview-grid-2 .image-preview,
+  .preview-grid-4 .image-preview {
+    max-height: 35vh;
+  }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .bottom-nav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 4px;
+    background: none;
+    border: none;
+    transition: color 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .bottom-nav button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .bottom-nav button.is-active {
+    color: var(--primary-dark);
+  }
+
+  .auth-hero h1 {
+    font-size: 48px;
+  }
+
+  .auth-hero-sub {
+    font-size: 22px;
+  }
+
+  .auth-left {
+    padding: 24px 20px 20px;
+    min-height: 280px;
+  }
+
+  .auth-right {
+    padding: 32px 20px 24px;
+    margin: 0 auto 16px;
+    width: calc(100% - 32px);
+  }
+
+  .auth-logo-row {
+    margin-bottom: 60px;
+  }
+
+  .auth-tabs-row {
+    margin-bottom: 32px;
+  }
+
+  .auth-input-eye {
+    width: 36px;
+    height: 36px;
+    right: 6px;
+  }
+
+  .auth-castle,
+  .auth-ring {
+    display: none;
+  }
+
+  .auth-form-header {
+    margin-bottom: 20px;
+  }
+
+  .top-actions .icon-btn[title="通知"] {
+    display: none;
+  }
+
+  .mobile-balance {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary-dark);
+    background: var(--primary-ghost);
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    white-space: nowrap;
+  }
+
+  .gallery-toolbar {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .gallery-title {
+    font-size: 18px;
+    margin-right: 12px;
+  }
+
+  .upload-box {
+    height: 120px;
+  }
+
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn {
+    min-height: 40px;
   }
 }

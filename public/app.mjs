@@ -248,6 +248,7 @@ function renderStudio() {
         ${renderSidebar()}
         <main class="workspace">${renderCurrentView()}</main>
       </div>
+      ${renderBottomNav()}
     </div>
     ${renderRechargeModal()}
     ${renderToast()}
@@ -268,6 +269,7 @@ function renderTopbar() {
       </nav>
       <div class="top-actions">
         <button class="icon-btn" title="通知">${icon("bell")}</button>
+        ${state.user ? `<span class="mobile-balance">${state.user.balanceCents ?? 0} 积分</span>` : ""}
         ${state.user ? renderUserMenu() : `<button class="primary-btn" data-action="open-auth" style="width:auto;padding:0 18px;height:36px;font-size:13px">登录</button>`}
       </div>
     </header>
@@ -326,6 +328,31 @@ function renderSidebar() {
         </section>
       `}
     </aside>
+  `;
+}
+
+// 渲染移动端底部导航栏
+function renderBottomNav() {
+  if (state.view === "auth") return "";
+
+  const items = state.user ? [
+    ["workspace", "text", "文生图"],
+    ["workspace-edit", "image", "图文生图"],
+    ["gallery", "grid", "画廊"],
+    ["my-gallery", "grid", "我的画廊"],
+    ["history", "clock", "历史"]
+  ] : [
+    ["gallery", "grid", "画廊"]
+  ];
+
+  return `
+    <nav class="bottom-nav">
+      ${items.map(([target, iconName, label]) => {
+        const isActive = resolveSideActive(target) || state.view === target;
+        const attr = target.startsWith("workspace") ? `data-side="${target}"` : `data-view="${target}"`;
+        return `<button class="${isActive ? "is-active" : ""}" ${attr}>${icon(iconName)}<span>${label}</span></button>`;
+      }).join("")}
+    </nav>
   `;
 }
 
