@@ -11,7 +11,9 @@ const state = {
   referenceImage: "",
   referenceImageName: "",
   gallery: [],
+  history: [],
   selectedId: null,
+  selectedHistoryId: null,
   generatedImages: [],
   isGenerating: false,
   progress: 0,
@@ -74,10 +76,11 @@ async function loadSession() {
   }
 }
 
-// 刷新钱包和画廊数据
+// 刷新钱包、公共画廊和个人历史数据
 async function refreshData() {
   if (state.user) {
-    await Promise.all([refreshWallet(), refreshGallery()]);
+    // 同时拉取公共画廊和个人历史，避免登录后公共画廊被空历史覆盖
+    await Promise.all([refreshWallet(), refreshPublicGallery(), refreshHistory()]);
   } else {
     await refreshPublicGallery();
   }
@@ -92,12 +95,12 @@ async function refreshWallet() {
   state.transactions = payload.wallet.transactions;
 }
 
-// 刷新图片历史
-async function refreshGallery() {
+// 刷新个人图片历史
+async function refreshHistory() {
   const payload = await api("/api/gallery");
 
-  state.gallery = payload.items;
-  state.selectedId = state.selectedId ?? state.gallery[0]?.id ?? null;
+  state.history = payload.items;
+  state.selectedHistoryId = selectExistingOrFirst(state.selectedHistoryId, state.history);
 }
 
 // 刷新公共画廊
@@ -105,9 +108,10 @@ async function refreshPublicGallery() {
   try {
     const payload = await api("/api/public-gallery");
     state.gallery = payload.items;
-    state.selectedId = state.selectedId ?? state.gallery[0]?.id ?? null;
+    state.selectedId = selectExistingOrFirst(state.selectedId, state.gallery);
   } catch {
     state.gallery = [];
+    state.selectedId = null;
   }
 }
 
@@ -120,31 +124,104 @@ function render() {
 // 渲染登录注册页
 function renderAuth() {
   return `
-    <div class="auth-fullscreen">
-      <div class="auth-brand">
-        <div class="brand-icon-large">🐱</div>
-        <h1>创想图像工作室</h1>
-        <p>登录后自动获得 50 积分额度</p>
-        <div class="auth-deco">用想象力创造无限可能</div>
-      </div>
-      <div class="auth-card">
-        <h2>欢迎回来</h2>
-        <div class="auth-tabs">
-          <button class="chip is-active" data-auth-mode="login">登录</button>
-          <button class="chip" data-auth-mode="register">注册</button>
+    <div class="auth-page">
+      <div class="auth-wrapper">
+        <div class="auth-left">
+          <div class="auth-left-inner">
+            <div class="auth-logo-row" aria-label="Kimo">
+              <div class="auth-logo-mark"><span></span><span></span><span></span></div>
+              <span class="auth-logo-text">Kimo</span>
+            </div>
+            <div class="auth-hero">
+              <h1>Kimo</h1>
+              <p class="auth-hero-sub">AI创造无限可能</p>
+              <div class="auth-hero-line"></div>
+              <p class="auth-hero-desc">探索 AI 的边界，释放你的创造力，让每一个想法都能变成现实。</p>
+            </div>
+            <div class="auth-celestial">
+              <span class="auth-planet"></span>
+              <span class="auth-ring auth-ring-one"></span>
+              <span class="auth-ring auth-ring-two"></span>
+              <span class="auth-castle">
+                <i></i><i></i><i></i><i></i><i></i>
+              </span>
+            </div>
+            <div class="auth-features">
+              <div class="auth-feature">
+                <div class="auth-feature-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <div class="auth-feature-text">
+                  <div class="auth-feature-title">智能高效</div>
+                  <div class="auth-feature-desc">先进AI模型<br>高效处理</div>
+                </div>
+              </div>
+              <div class="auth-feature">
+                <div class="auth-feature-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M3 9h18M9 21V9"/></svg>
+                </div>
+                <div class="auth-feature-text">
+                  <div class="auth-feature-title">无限创造</div>
+                  <div class="auth-feature-desc">激发灵感<br>创造无限</div>
+                </div>
+              </div>
+              <div class="auth-feature">
+                <div class="auth-feature-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div class="auth-feature-text">
+                  <div class="auth-feature-title">安全可靠</div>
+                  <div class="auth-feature-desc">数据加密<br>隐私保护</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="auth-footer">
+            <div class="auth-footer-copy">© 2024 Kimo. All rights reserved.</div>
+          </div>
         </div>
-        <form id="authForm" data-auth-form-mode="login">
-          <div class="auth-field">
-            <label>用户名</label>
-            <input name="username" type="text" autocomplete="username" placeholder="请输入用户名">
+        <div class="auth-right">
+          <div class="auth-tabs-row">
+            <button class="auth-tab is-active" data-auth-mode="login">登录</button>
+            <button class="auth-tab" data-auth-mode="register">注册</button>
           </div>
-          <div class="auth-field">
-            <label>密码</label>
-            <input name="password" type="password" autocomplete="current-password" placeholder="请输入密码">
+          <div class="auth-form-header">
+            <h2>欢迎回来 👋</h2>
+            <p>登录你的 Kimo 账户，继续你的 AI 创造之旅</p>
           </div>
-          <button class="primary-btn auth-submit" type="submit">登录</button>
-        </form>
-        <button class="text-btn" data-view="gallery">← 返回画廊浏览</button>
+          <form id="authForm" data-auth-form-mode="login">
+            <div class="auth-input-group">
+              <label>邮箱 / 用户名</label>
+              <div class="auth-input-wrap">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </span>
+                <input name="username" type="text" autocomplete="username" placeholder="请输入邮箱或用户名">
+              </div>
+            </div>
+            <div class="auth-input-group">
+              <label>密码</label>
+              <div class="auth-input-wrap">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                </span>
+                <input name="password" type="password" autocomplete="current-password" placeholder="请输入密码">
+                <span class="auth-input-eye" data-action="toggle-password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </span>
+              </div>
+            </div>
+            <div class="auth-options">
+              <label class="auth-remember">
+                <input type="checkbox">
+                <span>记住我</span>
+              </label>
+              <a href="#" class="auth-forgot">忘记密码?</a>
+            </div>
+            <button class="auth-login-btn" type="submit">登录</button>
+          </form>
+          <div class="auth-register-link">还没有账户？<button class="auth-link" data-auth-mode="register">立即注册</button></div>
+        </div>
       </div>
       ${renderToast()}
     </div>
@@ -212,8 +289,6 @@ function renderSidebar() {
     ["workspace-edit", "image", "图文生图"],
     ["gallery", "grid", "画廊"],
     ["history", "clock", "历史"],
-    ["models", "box", "模型"],
-    ["styles", "flower", "风格库"],
     ["settings", "settings", "设置"],
     ["feedback", "help", "帮助与反馈"]
   ] : [
@@ -568,14 +643,13 @@ function renderDetailPanel() {
       </div>
       <button class="secondary-btn" data-action="reuse-prompt" style="margin-bottom:8px">复用提示词</button>
       <button class="secondary-btn" data-action="download" style="margin-bottom:8px">下载</button>
-      <button class="danger-btn" data-action="delete-item">删除</button>
     </aside>
   `;
 }
 
 // 渲染历史详情页
 function renderDetail() {
-  const item = selectedGalleryItem();
+  const item = selectedHistoryItem();
 
   if (!item) return "<p class=\"empty-state\">暂无历史记录，先去生成一张。</p>";
 
@@ -627,6 +701,7 @@ function renderDetail() {
           <span class="tag">石材</span>
           <span class="tag">几何</span>
         </div>
+        <button class="danger-btn" data-action="delete-item" style="margin-top:16px">删除</button>
       </aside>
     </section>
   `;
@@ -714,16 +789,24 @@ function bindAuth() {
   const form = app.querySelector("#authForm");
 
   app.querySelectorAll("[data-auth-mode]").forEach((node) => node.addEventListener("click", () => switchAuthMode(node.dataset.authMode)));
+  app.querySelectorAll("[data-action='toggle-password']").forEach((node) => node.addEventListener("click", () => {
+    const input = node.closest(".auth-input-wrap").querySelector("input");
+    input.type = input.type === "password" ? "text" : "password";
+  }));
   form?.addEventListener("submit", handleAuthSubmit);
 }
 
 // 切换登录注册模式
 function switchAuthMode(mode) {
   const form = app.querySelector("#authForm");
-  const button = form.querySelector("button");
+  const button = form.querySelector(".auth-login-btn");
+  const heading = app.querySelector(".auth-form-header h2");
+  const subtitle = app.querySelector(".auth-form-header p");
 
   form.dataset.authFormMode = mode;
   button.textContent = mode === "login" ? "登录" : "注册";
+  heading.textContent = mode === "login" ? "欢迎回来 👋" : "创建账户";
+  subtitle.textContent = mode === "login" ? "登录你的 Kimo 账户，继续你的 AI 创造之旅" : "注册 Kimo 账户，开启你的 AI 创造之旅";
   app.querySelectorAll("[data-auth-mode]").forEach((node) => node.classList.toggle("is-active", node.dataset.authMode === mode));
 }
 
@@ -911,7 +994,8 @@ function reusePrompt() {
 
 // 下载当前选中图片
 function downloadSelectedImage() {
-  const image = selectedGalleryItem()?.images?.[0] ?? state.generatedImages[0];
+  const item = state.view === "history" ? selectedHistoryItem() : selectedGalleryItem();
+  const image = item?.images?.[0] ?? state.generatedImages[0];
 
   if (!image) return showToast("暂无可下载图片", "error");
 
@@ -923,14 +1007,14 @@ function downloadSelectedImage() {
 
 // 删除当前选中的历史记录
 async function deleteSelectedItem() {
-  const item = selectedGalleryItem();
+  const item = selectedHistoryItem();
 
   if (!item || item.id < 0) return;
 
   await runAction(async () => {
     await api(`/api/gallery/${item.id}`, { method: "DELETE" });
-    state.selectedId = null;
-    await refreshGallery();
+    state.selectedHistoryId = null;
+    await refreshHistory();
     showToast("已删除", "success");
   });
 }
@@ -1011,9 +1095,26 @@ function renderToast() {
   return `<div class="toast${typeClass}">${escapeHtml(state.toast)}</div>`;
 }
 
-// 获取当前选中的历史项
+// 获取当前选中的公共画廊项
 function selectedGalleryItem() {
-  return state.gallery.find((item) => Number(item.id) === Number(state.selectedId)) ?? state.gallery[0] ?? null;
+  return findSelectedItem(state.gallery, state.selectedId);
+}
+
+// 获取当前选中的个人历史项
+function selectedHistoryItem() {
+  return findSelectedItem(state.history, state.selectedHistoryId);
+}
+
+// 按 ID 查找选中项，找不到时回退到列表第一项
+function findSelectedItem(items, selectedId) {
+  return items.find((item) => Number(item.id) === Number(selectedId)) ?? items[0] ?? null;
+}
+
+// 保留仍然存在的选中项，否则选中列表第一项
+function selectExistingOrFirst(selectedId, items) {
+  const selectedItem = items.find((item) => Number(item.id) === Number(selectedId));
+
+  return selectedItem?.id ?? items[0]?.id ?? null;
 }
 
 // 获取画廊项目，空数据时展示本地静物占位

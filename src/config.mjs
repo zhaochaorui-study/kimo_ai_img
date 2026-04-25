@@ -10,12 +10,13 @@ const LOCAL_ENV_FILE_PATH = join(PROJECT_ROOT, ".env");
 export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
   return Object.freeze({
     port: readConfigNumber(runtimeEnv, "PORT", 4173),
-    sessionSecret: readConfigValue(runtimeEnv, "SESSION_SECRET", "create-img-web-local-session-secret"),
     signupCreditCents: readConfigNumber(runtimeEnv, "SIGNUP_CREDIT_CENTS", 50),
     textToImageUnitCostCents: readConfigNumber(runtimeEnv, "TEXT_TO_IMAGE_UNIT_COST_CENTS", 10),
     imageEditUnitCostCents: readConfigNumber(runtimeEnv, "IMAGE_EDIT_UNIT_COST_CENTS", 10),
     rechargeContact: readConfigValue(runtimeEnv, "RECHARGE_CONTACT", "QQ1351491099"),
+    sessionTtlSeconds: readConfigNumber(runtimeEnv, "SESSION_TTL_SECONDS", 7 * 24 * 60 * 60),
     database: createDatabaseConfig(runtimeEnv),
+    redis: createRedisConfig(runtimeEnv),
     imageApi: createImageApiConfig(runtimeEnv),
     imageStorage: createImageStorageConfig({
       platform: process.platform,
@@ -30,6 +31,16 @@ export function createConfigEnvironment(options = Object.freeze({})) {
   const runtimeEnv = options.runtimeEnv ?? process.env;
   const envFileVariables = readEnvFileVariables(envFilePath);
   return Object.freeze({ ...envFileVariables, ...runtimeEnv });
+}
+
+// 创建 Redis 配置对象，本地 Redis 作为默认会话存储
+function createRedisConfig(runtimeEnv) {
+  return Object.freeze({
+    host: readConfigValue(runtimeEnv, "REDIS_HOST", "127.0.0.1"),
+    port: readConfigNumber(runtimeEnv, "REDIS_PORT", 6379),
+    password: readConfigValue(runtimeEnv, "REDIS_PASSWORD", ""),
+    db: readConfigNumber(runtimeEnv, "REDIS_DB", 0)
+  });
 }
 
 // 创建数据库配置对象，隔离数据库连接参数读取

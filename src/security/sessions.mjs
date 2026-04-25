@@ -1,45 +1,67 @@
-import { createHmac } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
-// 会话签名器，负责签发和校验本地登录令牌
-export class SessionSigner {
-  constructor(secret) {
-    this.secret = secret;
+const DEFAULT_SESSION_KEY_PREFIX = "create_img_web:session:";
+
+// Redis 会话存储，负责签发、校验和销毁登录会话
+export class RedisSessionStore {
+  constructor(input) {
+    this.redisClient = input.redisClient;
+    this.keyPrefix = input.keyPrefix ?? DEFAULT_SESSION_KEY_PREFIX;
+    this.ttlSeconds = input.ttlSeconds;
   }
 
-  // 签发用户令牌，浏览器后续通过 Authorization 传回
-  issue(user) {
-    const payload = encodeBase64Url(JSON.stringify({
-      userId: user.id,
-      username: user.username,
-      issuedAt: Date.now()
-    }));
+  // 签发不含用户信息的随机会话令牌，并把会话写入 Redis
+  async issue(user) {
+    const token = randomUUID();
+    const session = this.#createSessionPayload(user);
 
-    return `${payload}.${this.#sign(payload)}`;
+    // 调用 Redis 写入会话，保证后续请求必须依赖服务端会话状态
+    await this.redisClient.setEx(this.#createSessionKey(token), this.ttlSeconds, JSON.stringify(session));
+
+    return token;
   }
 
-  // 校验令牌签名并解析用户身份
-  verify(token) {
-    const [payload, signature] = String(token ?? "").split(".");
+  // 校验会话令牌并返回 Redis 中保存的用户身份
+  async verify(token) {
+    const sessionValue = await this.redisClient.get(this.#createSessionKey(token));
 
-    if (!payload || !signature || this.#sign(payload) !== signature) {
+    if (!sessionValue) {
       throw new Error("登录已失效，请重新登录");
     }
 
-    return JSON.parse(decodeBase64Url(payload));
+    return this.#parseSessionValue(sessionValue);
   }
 
-  // 为令牌载荷生成 HMAC 签名
-  #sign(payload) {
-    return createHmac("sha256", this.secret).update(payload).digest("base64url");
+  // 销毁会话令牌，用于退出登录或服务端主动失效
+  async destroy(token) {
+    await this.redisClient.del(this.#createSessionKey(token));
   }
-}
 
-// 编码 URL 安全的 base64 字符串
-function encodeBase64Url(value) {
-  return Buffer.from(value).toString("base64url");
-}
+  // 创建 Redis 会话键
+  #createSessionKey(token) {
+    const safeToken = String(token ?? "").trim();
+    if (!safeToken) {
+      throw new Error("登录已失效，请重新登录");
+    }
 
-// 解码 URL 安全的 base64 字符串
-function decodeBase64Url(value) {
-  return Buffer.from(value, "base64url").toString("utf8");
+    return `${this.keyPrefix}${safeToken}`;
+  }
+
+  // 创建会话载荷，统一 Redis 中保存的数据形态
+  #createSessionPayload(user) {
+    return {
+      userId: Number(user.id),
+      username: user.username,
+      issuedAt: Date.now()
+    };
+  }
+
+  // 解析 Redis 会话内容，坏数据按登录失效处理
+  #parseSessionValue(value) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      throw new Error("登录已失效，请重新登录");
+    }
+  }
 }

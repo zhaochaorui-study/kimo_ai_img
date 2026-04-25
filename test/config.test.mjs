@@ -54,6 +54,18 @@ test("createAppConfig keeps default signup credit and generation cost at ten cre
   assert.equal(appConfig.imageEditUnitCostCents, 10);
 });
 
+test("createAppConfig uses local Redis as default session storage", () => {
+  const appConfig = createAppConfig(Object.freeze({}));
+
+  assert.deepEqual(appConfig.redis, {
+    host: "127.0.0.1",
+    port: 6379,
+    password: "",
+    db: 0
+  });
+  assert.equal(appConfig.sessionTtlSeconds, 7 * 24 * 60 * 60);
+});
+
 // 创建临时 .env 文件，隔离配置加载测试
 async function createTemporaryEnvFile(lines) {
   const directory = await mkdtemp(join(tmpdir(), "create-img-config-"));

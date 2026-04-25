@@ -11,7 +11,7 @@ export class AuthService {
   constructor(input) {
     this.pool = input.pool;
     this.userRepository = input.userRepository;
-    this.sessionSigner = input.sessionSigner;
+    this.sessionStore = input.sessionStore;
     this.signupCreditCents = input.signupCreditCents;
   }
 
@@ -87,11 +87,11 @@ export class AuthService {
   }
 
   // 创建登录成功返回体
-  #createSessionPayload(user) {
+  async #createSessionPayload(user) {
     const userPayload = this.#createUserPayload(user);
 
     return {
-      token: this.sessionSigner.issue(userPayload),
+      token: await this.sessionStore.issue(userPayload),
       user: userPayload
     };
   }

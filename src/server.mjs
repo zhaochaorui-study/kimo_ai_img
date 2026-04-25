@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { APP_CONFIG } from "./config.mjs";
 import { createDatabasePool } from "./database/mysqlClient.mjs";
+import { createRedisClient } from "./database/redisClient.mjs";
 import { GenerationRepository } from "./repositories/generationRepository.mjs";
 import { UserRepository } from "./repositories/userRepository.mjs";
 import { Credentials, AuthService } from "./services/authService.mjs";
@@ -13,14 +14,15 @@ import { RemoteImageClient } from "./services/remoteImageClient.mjs";
 import { ImageStorageService } from "./services/imageStorageService.mjs";
 import { WalletService } from "./services/walletService.mjs";
 import { sendError, sendOk, readJsonBody } from "./http/httpResponses.mjs";
-import { SessionSigner } from "./security/sessions.mjs";
+import { RedisSessionStore } from "./security/sessions.mjs";
 
 const PUBLIC_DIR = join(fileURLToPath(new URL("..", import.meta.url)), "public");
 
 // 启动应用服务，初始化数据库和所有业务服务
 async function main() {
   const pool = await createDatabasePool(APP_CONFIG.database);
-  const services = await createServices(pool);
+  const redisClient = await createRedisClient(APP_CONFIG.redis);
+  const services = await createServices(pool, redisClient);
   const server = createServer((request, response) => handleRequest(request, response, services));
 
   server.listen(APP_CONFIG.port, () => {
@@ -29,10 +31,14 @@ async function main() {
 }
 
 // 创建服务实例并完成依赖装配
-async function createServices(pool) {
+async function createServices(pool, redisClient) {
   const userRepository = new UserRepository(pool);
   const generationRepository = new GenerationRepository(pool);
   const imageStorageService = new ImageStorageService(APP_CONFIG.imageStorage);
+  const sessionStore = new RedisSessionStore({
+    redisClient,
+    ttlSeconds: APP_CONFIG.sessionTtlSeconds
+  });
   const walletService = new WalletService({
     pool,
     userRepository,
@@ -48,7 +54,7 @@ async function createServices(pool) {
     authService: new AuthService({
       pool,
       userRepository,
-      sessionSigner: new SessionSigner(APP_CONFIG.sessionSecret),
+      sessionStore,
       signupCreditCents: APP_CONFIG.signupCreditCents
     }),
     walletService,
@@ -61,7 +67,7 @@ async function createServices(pool) {
       imageEditUnitCostCents: APP_CONFIG.imageEditUnitCostCents
     }),
     imageStorageService,
-    sessionSigner: new SessionSigner(APP_CONFIG.sessionSecret)
+    sessionStore
   };
 }
 
@@ -125,7 +131,7 @@ async function handleLogin(request, response, services) {
 
 // 处理需要登录的 API 请求
 async function handleAuthedApiRequest(request, response, services, url) {
-  const session = requireSession(request, services.sessionSigner);
+  const session = await requireSession(request, services.sessionStore);
 
   if (request.method === "GET" && url.pathname === "/api/session") {
     sendOk(response, { user: await services.authService.loadSessionUser(session) });
@@ -206,11 +212,11 @@ class AuthedRouteHandlers {
 }
 
 // 从 Authorization 请求头中解析并校验登录令牌
-function requireSession(request, sessionSigner) {
+async function requireSession(request, sessionStore) {
   const header = request.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
 
-  return sessionSigner.verify(token);
+  return sessionStore.verify(token);
 }
 
 // 返回静态资源，根路径默认返回前端入口
