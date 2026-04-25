@@ -1,0 +1,104 @@
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { createImageStorageConfig } from "./services/imageStorageService.mjs";
+
+const PROJECT_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const LOCAL_ENV_FILE_PATH = join(PROJECT_ROOT, ".env");
+
+// 创建应用配置，统一编排各模块配置来源
+export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
+  return Object.freeze({
+    port: readConfigNumber(runtimeEnv, "PORT", 4173),
+    sessionSecret: readConfigValue(runtimeEnv, "SESSION_SECRET", "create-img-web-local-session-secret"),
+    signupCreditCents: readConfigNumber(runtimeEnv, "SIGNUP_CREDIT_CENTS", 50),
+    textToImageUnitCostCents: readConfigNumber(runtimeEnv, "TEXT_TO_IMAGE_UNIT_COST_CENTS", 10),
+    imageEditUnitCostCents: readConfigNumber(runtimeEnv, "IMAGE_EDIT_UNIT_COST_CENTS", 10),
+    rechargeContact: readConfigValue(runtimeEnv, "RECHARGE_CONTACT", "QQ1351491099"),
+    database: createDatabaseConfig(runtimeEnv),
+    imageApi: createImageApiConfig(runtimeEnv),
+    imageStorage: createImageStorageConfig({
+      platform: process.platform,
+      projectRoot: join(PROJECT_ROOT)
+    })
+  });
+}
+
+// 创建配置环境，本地 .env 作为兜底，运行时环境变量优先
+export function createConfigEnvironment(options = Object.freeze({})) {
+  const envFilePath = options.envFilePath ?? LOCAL_ENV_FILE_PATH;
+  const runtimeEnv = options.runtimeEnv ?? process.env;
+  const envFileVariables = readEnvFileVariables(envFilePath);
+  return Object.freeze({ ...envFileVariables, ...runtimeEnv });
+}
+
+// 创建数据库配置对象，隔离数据库连接参数读取
+function createDatabaseConfig(runtimeEnv) {
+  return Object.freeze({
+    host: readConfigValue(runtimeEnv, "DB_HOST", "127.0.0.1"),
+    port: readConfigNumber(runtimeEnv, "DB_PORT", 3306),
+    user: readConfigValue(runtimeEnv, "DB_USER", "root"),
+    password: readConfigValue(runtimeEnv, "DB_PASSWORD", "rootadmin"),
+    name: readConfigValue(runtimeEnv, "DB_NAME", "create_img_web")
+  });
+}
+
+// 创建图片服务请求配置对象，避免密钥和请求地址硬编码在源码里
+function createImageApiConfig(runtimeEnv) {
+  return Object.freeze({
+    key: readConfigValue(runtimeEnv, "KIMO_API_KEY", ""),
+    generationUrl: readConfigValue(runtimeEnv, "KIMO_GENERATION_URL", ""),
+    editUrl: readConfigValue(runtimeEnv, "KIMO_EDIT_URL", ""),
+    model: readConfigValue(runtimeEnv, "KIMO_IMAGE_MODEL", "gpt-image-1")
+  });
+}
+
+// 读取数字配置，非法数字时回退到默认值
+function readConfigNumber(runtimeEnv, key, fallback) {
+  const value = Number(readConfigValue(runtimeEnv, key, fallback));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+// 读取字符串配置，空值统一回退到默认值
+function readConfigValue(runtimeEnv, key, fallback) {
+  const value = runtimeEnv[key];
+  if (value === undefined || value === null || value === "") return fallback;
+  return value;
+}
+
+// 读取本地 .env 文件变量，文件不存在时返回空配置
+function readEnvFileVariables(envFilePath) {
+  if (!existsSync(envFilePath)) return Object.freeze({});
+  return parseEnvFileContent(readFileSync(envFilePath, "utf8"));
+}
+
+// 解析 .env 文本内容，支持空行、注释和带引号的值
+function parseEnvFileContent(content) {
+  const entries = content.split(/\r?\n/)
+    .map((line) => parseEnvLine(line))
+    .filter((entry) => entry !== null);
+  return Object.freeze(Object.fromEntries(entries));
+}
+
+// 解析单行 .env 配置，非配置行返回空值
+function parseEnvLine(line) {
+  const trimmedLine = line.trim();
+  if (!trimmedLine || trimmedLine.startsWith("#")) return null;
+  const separatorIndex = trimmedLine.indexOf("=");
+  if (separatorIndex <= 0) return null;
+  return [
+    trimmedLine.slice(0, separatorIndex).trim(),
+    normalizeEnvValue(trimmedLine.slice(separatorIndex + 1).trim())
+  ];
+}
+
+// 规范化 .env 配置值，去掉成对引号
+function normalizeEnvValue(value) {
+  if (value.length < 2) return value;
+  if (value.startsWith("\"") && value.endsWith("\"")) return value.slice(1, -1);
+  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1);
+  return value;
+}
+
+// 加载运行时环境并生成应用配置
+export const APP_CONFIG = createAppConfig();

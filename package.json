@@ -1,0 +1,14 @@
+{
+  "name": "create-img-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 4173",
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "mysql2": "^3.22.2"
+  }
+}
