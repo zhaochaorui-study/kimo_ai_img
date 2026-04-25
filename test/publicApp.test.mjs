@@ -26,9 +26,13 @@ test("public auth page removes third party login entrances", async () => {
   assert.doesNotMatch(source, /关于我们|帮助中心|隐私政策|服务条款/);
 });
 
-test("public gallery remains visible after user login", async () => {
+test("gallery always uses public items and history uses current user items", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
   assert.match(source, /await Promise\.all\(\[refreshWallet\(\), refreshPublicGallery\(\), refreshHistory\(\)\]\);/);
   assert.match(source, /history:\s*\[\]/);
+  assert.match(source, /const payload = await api\("\/api\/public-gallery"\);/);
+  assert.match(source, /const payload = await api\("\/api\/gallery"\);/);
+  assert.match(source, /function selectedGalleryItem\(\) {\s*return findSelectedItem\(state\.gallery, state\.selectedId\);/);
+  assert.match(source, /function selectedHistoryItem\(\) {\s*return findSelectedItem\(state\.history, state\.selectedHistoryId\);/);
 });
