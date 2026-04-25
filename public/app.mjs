@@ -35,6 +35,7 @@ const state = {
 };
 
 const app = document.querySelector("#app");
+const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -405,7 +406,7 @@ function renderUploadField() {
     <div class="field">
       <span class="upload-label">参考图像</span>
       <div class="upload-box">
-        ${state.referenceImage ? `<img class="reference-preview" src="${state.referenceImage}" alt="参考图">` : "<div class=\"upload-placeholder\">上传 JPG / PNG，最大 10MB</div>"}
+        ${state.referenceImage ? renderImageTag("reference-preview", state.referenceImage, "参考图") : "<div class=\"upload-placeholder\">上传 JPG / PNG，最大 10MB</div>"}
         <input id="referenceInput" type="file" accept="image/png,image/jpeg,image/webp">
       </div>
     </div>
@@ -517,7 +518,7 @@ function renderCompareStage() {
         <div class="compare-grid">
           <div>
             <h3>原图（参考）</h3>
-            <div class="image-preview compare-card">${state.referenceImage ? `<img class="generated-image" src="${state.referenceImage}" alt="参考图">` : "<div class=\"mock-still-life\"></div>"}</div>
+            <div class="image-preview compare-card">${state.referenceImage ? renderImageTag("generated-image", state.referenceImage, "参考图") : "<div class=\"mock-still-life\"></div>"}</div>
           </div>
           <div class="arrow-circle">${icon("arrow-right")}</div>
           <div>
@@ -535,7 +536,7 @@ function renderCompareStage() {
 function renderPrimaryImage() {
   const image = state.generatedImages[0] ?? selectedGalleryItem()?.images?.[0];
 
-  return image ? `<img class="generated-image" src="${image}" alt="生成结果">` : "<div class=\"mock-still-life\"></div>";
+  return image ? renderImageTag("generated-image", image, "生成结果") : "<div class=\"mock-still-life\"></div>";
 }
 
 // 根据宽高比获取分辨率字符串
@@ -558,10 +559,24 @@ function getAspectRatio(ratio) {
 
 // 渲染图片或占位图
 function renderImageContent(image) {
-  if (image && (image.startsWith("data:image/") || image.startsWith("http"))) {
-    return `<img class="generated-image" src="${image}" alt="生成结果">`;
+  if (isRenderableImage(image)) {
+    return renderImageTag("generated-image", image, "生成结果");
   }
   return `<div class="mock-still-life"></div>`;
+}
+
+// 渲染图片标签，统一开启懒加载和异步解码
+function renderImageTag(className, source, alt) {
+  const classAttribute = className ? ` class="${className}"` : "";
+
+  return `<img${classAttribute} ${IMAGE_LOAD_ATTRIBUTES} src="${source}" alt="${alt}">`;
+}
+
+// 判断图片地址是否可以直接交给浏览器渲染
+function isRenderableImage(image) {
+  const value = String(image ?? "");
+
+  return value.startsWith("data:image/") || value.startsWith("http") || value.startsWith("/");
 }
 
 // 渲染缩略图条
@@ -579,7 +594,7 @@ function renderThumbStrip() {
 
 // 渲染单个缩略图
 function renderThumb(image, index) {
-  const content = image.startsWith("data:image/") ? `<img class="generated-image" src="${image}" alt="缩略图">` : "<div class=\"mock-still-life\"></div>";
+  const content = isRenderableImage(image) ? renderImageTag("generated-image", image, "缩略图") : "<div class=\"mock-still-life\"></div>";
 
   return `<div class="thumb ${index === 0 ? "is-active" : ""}">${content}</div>`;
 }
@@ -651,7 +666,7 @@ function renderGalleryItem(item) {
 
   return `
     <article class="gallery-item">
-      <button data-select="${item.id}">${image ? `<img src="${image}" alt="生成图">` : "<div class=\"mock-still-life\"></div>"}</button>
+      <button data-select="${item.id}">${image ? renderImageTag("", image, "生成图") : "<div class=\"mock-still-life\"></div>"}</button>
       <span class="gallery-fav">${icon("heart")}</span>
     </article>
   `;
@@ -663,7 +678,7 @@ function renderMyGalleryItem(item) {
 
   return `
     <article class="gallery-item my-gallery-item">
-      <button data-select="${item.id}">${image ? `<img src="${image}" alt="我的画廊生成图">` : "<div class=\"mock-still-life\"></div>"}</button>
+      <button data-select="${item.id}">${image ? renderImageTag("", image, "我的画廊生成图") : "<div class=\"mock-still-life\"></div>"}</button>
       <button class="gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </article>
   `;
@@ -677,7 +692,7 @@ function renderDetailPanel() {
 
   return `
     <aside class="detail-panel">
-      <div class="thumb">${item.images?.[0] ? `<img class="generated-image" src="${item.images[0]}" alt="选中图">` : "<div class=\"mock-still-life\"></div>"}</div>
+      <div class="thumb">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
         <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
@@ -709,7 +724,7 @@ function renderMyGalleryDetailPanel() {
 
   return `
     <aside class="detail-panel">
-      <div class="thumb">${item.images?.[0] ? `<img class="generated-image" src="${item.images[0]}" alt="我的画廊选中图">` : "<div class=\"mock-still-life\"></div>"}</div>
+      <div class="thumb">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "我的画廊选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
         <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
@@ -745,12 +760,12 @@ function renderDetail() {
             <button class="icon-btn" style="width:32px;height:32px" title="更多">⋯</button>
           </span>
         </h2>
-        <div class="detail-image">${images[0] ? `<img src="${images[0]}" alt="历史详情">` : "<div class=\"mock-still-life\"></div>"}</div>
+        <div class="detail-image">${images[0] ? renderImageTag("", images[0], "历史详情") : "<div class=\"mock-still-life\"></div>"}</div>
         ${variants.length ? `
           <div style="margin-top:8px">
             <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">生成变体</div>
             <div class="variants-row">
-              ${images.map((img, i) => `<div class="variant-thumb ${i === 0 ? "is-active" : ""}">${img ? `<img class="generated-image" src="${img}">` : "<div class=\"mock-still-life\"></div>"}</div>`).join("")}
+              ${images.map((img, i) => `<div class="variant-thumb ${i === 0 ? "is-active" : ""}">${img ? renderImageTag("generated-image", img, "生成变体") : "<div class=\"mock-still-life\"></div>"}</div>`).join("")}
             </div>
           </div>
         ` : ""}

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const PUBLIC_APP_PATH = new URL("../public/app.mjs", import.meta.url);
 const PUBLIC_STYLE_PATH = new URL("../public/styles.css", import.meta.url);
+const SERVER_PATH = new URL("../src/server.mjs", import.meta.url);
 
 test("public app defaults to one square image and ten credits per generation", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
@@ -67,4 +68,22 @@ test("default preview uses UI empty state instead of mock still life", async () 
   assert.match(source, /border:\s*1px dashed rgba\(255, 143, 163, 0\.38\)/);
   assert.doesNotMatch(source, /radial-gradient\(circle at 50% 54%/);
   assert.doesNotMatch(source, /linear-gradient\(90deg, transparent 0 27%, #8b6f4e/);
+});
+
+test("rendered image tags use lazy loading and async decoding", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"'/);
+  assert.match(source, /function renderImageTag\(className, source, alt\)/);
+  assert.match(source, /<img\$\{classAttribute\} \$\{IMAGE_LOAD_ATTRIBUTES\} src="\$\{source\}"/);
+  assert.match(source, /value\.startsWith\("\/"\)/);
+});
+
+test("server streams static files and caches generated images", async () => {
+  const source = await readFile(SERVER_PATH, "utf8");
+
+  assert.match(source, /createReadStream/);
+  assert.match(source, /resolveStaticAssetHeaders/);
+  assert.match(source, /return "public, max-age=31536000, immutable"/);
+  assert.doesNotMatch(source, /const content = await readFile\(safePath\)/);
 });

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -239,10 +240,15 @@ async function requireSession(request, sessionStore) {
 // 返回静态资源，根路径默认返回前端入口
 async function serveStaticAsset(response, pathname, services) {
   const safePath = createSafeAssetPath(pathname, services);
-  const content = await readFile(safePath);
 
-  response.writeHead(200, { "Content-Type": resolveMimeType(safePath) });
-  response.end(content);
+  // 调用文件状态读取，给浏览器明确 Content-Length 便于下载进度和连接复用
+  const fileStatus = await stat(safePath);
+  const headers = resolveStaticAssetHeaders(safePath, pathname, fileStatus.size);
+
+  response.writeHead(200, headers);
+
+  // 调用流式读取，避免大图一次性读进 Node 内存导致服务器卡顿
+  createReadStream(safePath).on("error", () => response.destroy()).pipe(response);
 }
 
 // 生成安全的静态资源路径，避免目录穿越
@@ -270,6 +276,28 @@ function resolveMimeType(filePath) {
   };
 
   return types[extname(filePath)] ?? "application/octet-stream";
+}
+
+// 生成静态资源响应头，图片长缓存，页面壳短缓存
+function resolveStaticAssetHeaders(filePath, pathname, contentLength) {
+  return {
+    "Content-Type": resolveMimeType(filePath),
+    "Content-Length": contentLength,
+    "Cache-Control": resolveStaticCacheControl(pathname)
+  };
+}
+
+// 根据资源路径生成缓存策略，生成图片路径带任务 ID，可安全长缓存
+function resolveStaticCacheControl(pathname) {
+  if (normalize(pathname).startsWith(APP_CONFIG.imageStorage.publicPrefix)) {
+    return "public, max-age=31536000, immutable";
+  }
+
+  if (pathname === "/" || pathname.endsWith(".html")) {
+    return "no-cache";
+  }
+
+  return "public, max-age=300";
 }
 
 // 根据错误内容映射合适的 HTTP 状态码
