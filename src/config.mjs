@@ -56,12 +56,25 @@ function createDatabaseConfig(runtimeEnv) {
 
 // 创建图片服务请求配置对象，避免密钥和请求地址硬编码在源码里
 function createImageApiConfig(runtimeEnv) {
+  const baseUrl = normalizeBaseUrl(readConfigValue(runtimeEnv, "KIMO_API_BASE_URL", ""));
+
   return Object.freeze({
     key: readConfigValue(runtimeEnv, "KIMO_API_KEY", ""),
-    generationUrl: readConfigValue(runtimeEnv, "KIMO_GENERATION_URL", ""),
-    editUrl: readConfigValue(runtimeEnv, "KIMO_EDIT_URL", ""),
+    generationUrl: readConfigValue(runtimeEnv, "KIMO_GENERATION_URL", createImageApiUrl(baseUrl, "/v1/images/generations")),
+    editUrl: readConfigValue(runtimeEnv, "KIMO_EDIT_URL", createImageApiUrl(baseUrl, "/v1/images/edits")),
     model: readConfigValue(runtimeEnv, "KIMO_IMAGE_MODEL", "gpt-image-1")
   });
+}
+
+// 拼接图片 API 完整地址，未配置 base URL 时保持为空
+function createImageApiUrl(baseUrl, pathname) {
+  if (!baseUrl) return "";
+  return `${baseUrl}${pathname}`;
+}
+
+// 规范化 API base URL，避免尾部斜杠导致路径双斜杠
+function normalizeBaseUrl(value) {
+  return String(value ?? "").replace(/\/+$/, "");
 }
 
 // 读取数字配置，非法数字时回退到默认值

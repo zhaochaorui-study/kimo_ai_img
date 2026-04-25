@@ -46,6 +46,26 @@ test("createConfigEnvironment keeps runtime variables ahead of env file values",
   assert.equal(appConfig.imageApi.generationUrl, "https://runtime.example.test/generations");
 });
 
+test("createAppConfig derives image endpoints from local API base URL", () => {
+  const appConfig = createAppConfig(Object.freeze({
+    KIMO_API_BASE_URL: "http://127.0.0.1:3000"
+  }));
+
+  assert.equal(appConfig.imageApi.generationUrl, "http://127.0.0.1:3000/v1/images/generations");
+  assert.equal(appConfig.imageApi.editUrl, "http://127.0.0.1:3000/v1/images/edits");
+});
+
+test("createAppConfig keeps explicit image endpoints ahead of API base URL", () => {
+  const appConfig = createAppConfig(Object.freeze({
+    KIMO_API_BASE_URL: "http://127.0.0.1:3000",
+    KIMO_GENERATION_URL: "http://127.0.0.1:4000/custom/generations",
+    KIMO_EDIT_URL: "http://127.0.0.1:4000/custom/edits"
+  }));
+
+  assert.equal(appConfig.imageApi.generationUrl, "http://127.0.0.1:4000/custom/generations");
+  assert.equal(appConfig.imageApi.editUrl, "http://127.0.0.1:4000/custom/edits");
+});
+
 test("createAppConfig keeps default signup credit and generation cost at ten credits", () => {
   const appConfig = createAppConfig(Object.freeze({}));
 
