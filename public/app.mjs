@@ -784,7 +784,7 @@ function renderGeneratingPreview() {
       </div>
       <div class="generation-status">
         <strong>正在生成</strong>
-        <span>${Math.max(1, Math.round(state.progress))}%</span>
+        <span data-generation-progress>${Math.max(1, Math.round(state.progress))}%</span>
       </div>
     </div>
   `;
@@ -829,8 +829,8 @@ function renderProgress() {
   return `
     <div class="progress-area">
       <strong>${state.generatingMode === state.mode ? "生成中..." : "等待生成"}</strong>
-      <span style="float:right">${state.progress}%</span>
-      <div class="progress-track"><div class="progress-bar" style="--progress:${state.progress}%"></div></div>
+      <span data-generation-progress style="float:right">${state.progress}%</span>
+      <div class="progress-track"><div data-generation-progress-bar class="progress-bar" style="--progress:${state.progress}%"></div></div>
       <p class="empty-state">预计消耗 ${calculateCostCents()} 积分</p>
     </div>
   `;
@@ -1480,9 +1480,9 @@ async function generateImage() {
       const path = state.mode === "image-prompt" ? "/api/images/edits" : "/api/images/generations";
       const payload = await api(path, { method: "POST", body: JSON.stringify(createGenerationPayload()) });
       state.generatedImages = payload.images;
-      await refreshData();
-      showToast("生成成功！图片已保存到历史", "success");
     });
+    await refreshData();
+    showToast("生成成功！图片已保存到历史", "success");
   } catch (error) {
     showToast(error.message || "生成失败，请稍后重试", "error");
   }
@@ -1509,8 +1509,11 @@ async function runGeneratingAction(work) {
   const timer = setInterval(() => advanceProgress(), 700);
 
   try {
-    await work();
+    const result = await work();
     state.progress = 100;
+    // 调用局部进度更新函数，避免生成动画在完成瞬间被重建
+    updateGenerationProgress();
+    return result;
   } catch (error) {
     state.progress = 0;
     throw error;
@@ -1524,7 +1527,22 @@ async function runGeneratingAction(work) {
 // 推进生成进度条，远端未返回前最多走到 92
 function advanceProgress() {
   state.progress = Math.min(92, state.progress + 9);
-  render();
+  updateGenerationProgress();
+}
+
+// 局部刷新生成进度，避免整页 render 重启动画和余额区域
+function updateGenerationProgress() {
+  const progress = `${Math.max(1, Math.round(state.progress))}%`;
+
+  // 调用进度文本更新，保持生成动画 DOM 稳定不被卸载
+  app.querySelectorAll("[data-generation-progress]").forEach((node) => {
+    node.textContent = progress;
+  });
+
+  // 调用进度条样式更新，只改 CSS 变量避免布局重排
+  app.querySelectorAll("[data-generation-progress-bar]").forEach((node) => {
+    node.style.setProperty("--progress", progress);
+  });
 }
 
 // 上传参考图并转成 data URL

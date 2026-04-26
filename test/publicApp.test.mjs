@@ -84,6 +84,22 @@ test("generating preview renders animated image aura", async () => {
   assert.match(styleSource, /prefers-reduced-motion: reduce/);
 });
 
+test("generation progress updates do not remount the whole app", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /function updateGenerationProgress\(\)/);
+  assert.match(source, /data-generation-progress/);
+  assert.match(source, /data-generation-progress-bar/);
+  assert.match(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*updateGenerationProgress\(\);\s*\}/);
+  assert.doesNotMatch(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*render\(\);\s*\}/);
+});
+
+test("generation refreshes wallet data after leaving the active generation state", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /await runGeneratingAction\(async \(\) => \{\s*const path = state\.mode === "image-prompt" \? "\/api\/images\/edits" : "\/api\/images\/generations";\s*const payload = await api\(path, \{ method: "POST", body: JSON\.stringify\(createGenerationPayload\(\)\) \}\);\s*state\.generatedImages = payload\.images;\s*\}\);\s*await refreshData\(\);/);
+});
+
 test("compare reference card shows the uploaded reference image", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
