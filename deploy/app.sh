@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_ENTRY="${PROJECT_ROOT}/src/server.mjs"
+APP_PORT="${PORT:-4173}"
 RUN_DIR="${PROJECT_ROOT}/.run"
 LOG_DIR="${PROJECT_ROOT}/logs"
 PID_FILE="${RUN_DIR}/kimo-web.pid"
@@ -35,6 +36,25 @@ is_process_running() {
 # Find existing app processes started from this project.
 find_app_pids() {
   pgrep -f "node ${APP_ENTRY}" 2>/dev/null || true
+}
+
+# Find any process listening on the app port, including stale processes from old deploy paths.
+find_port_pids() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti "tcp:${APP_PORT}" -sTCP:LISTEN 2>/dev/null || true
+    return
+  fi
+
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${APP_PORT}/tcp" 2>/dev/null || true
+  fi
+}
+
+# Print recent app logs to expose startup errors such as EADDRINUSE.
+print_recent_logs() {
+  if [[ -f "${LOG_FILE}" ]]; then
+    tail -n 40 "${LOG_FILE}"
+  fi
 }
 
 # Stop one process and wait briefly for it to exit.
@@ -76,6 +96,12 @@ stop_app() {
     fi
   done
 
+  for found_pid in $(find_port_pids); do
+    if [[ "${found_pid}" != "$$" ]]; then
+      stop_pid "${found_pid}"
+    fi
+  done
+
   rm -f "${PID_FILE}"
   echo "Stopped."
 }
@@ -95,8 +121,19 @@ start_app() {
   cd "${PROJECT_ROOT}"
   echo "Starting app..."
   nohup node "${APP_ENTRY}" >> "${LOG_FILE}" 2>&1 &
-  echo "$!" > "${PID_FILE}"
-  echo "Started: $(cat "${PID_FILE}")"
+  local started_pid="$!"
+  echo "${started_pid}" > "${PID_FILE}"
+  sleep 1
+
+  if ! is_process_running "${started_pid}"; then
+    echo "Start failed. Recent logs:"
+    print_recent_logs
+    rm -f "${PID_FILE}"
+    exit 1
+  fi
+
+  echo "Started: ${started_pid}"
+  echo "Port: ${APP_PORT}"
   echo "Log: ${LOG_FILE}"
 }
 
@@ -115,6 +152,14 @@ show_status() {
 
   if [[ -n "${found_pids}" ]]; then
     echo "Running without pid file: ${found_pids}"
+    return
+  fi
+
+  local port_pids
+  port_pids="$(find_port_pids)"
+
+  if [[ -n "${port_pids}" ]]; then
+    echo "Port ${APP_PORT} is occupied by: ${port_pids}"
     return
   fi
 
