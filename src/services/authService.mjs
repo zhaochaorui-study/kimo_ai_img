@@ -2,9 +2,11 @@ import { runInTransaction } from "../database/mysqlClient.mjs";
 import { CreditAmount } from "../domain/billing.mjs";
 import { hashPassword, verifyPassword } from "../security/passwords.mjs";
 import { WalletTransactionType } from "../domain/billing.mjs";
+import { assertAllowedRegisterEmailDomain } from "../security/emailPolicy.mjs";
 
 const MIN_PASSWORD_LENGTH = 6;
 const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const DUPLICATE_REGISTER_IP_MESSAGE = "当前网络环境已注册过账号，请勿重复注册";
 
 // 认证服务，负责注册、登录和当前用户查询
 export class AuthService {
@@ -20,15 +22,19 @@ export class AuthService {
   async register(credentials) {
     this.#validateCredentials(credentials);
 
+    // 调用邮箱白名单校验，避免验证码通过后仍允许非目标邮箱注册
+    assertAllowedRegisterEmailDomain(credentials.email);
+
+    // 调用注册来源校验，阻止同一 IP 重复创建账号
+    await this.#assertRegisterIpAvailable(credentials.registerIp);
+
     // 校验邮箱验证码
     await this.verificationService.verifyCode(credentials.email, credentials.verificationCode);
 
     const passwordHash = hashPassword(credentials.password);
 
     // 调用事务创建用户，保证账号和赠送额度流水一致
-    const user = await runInTransaction(this.pool, async (connection) => {
-      return this.#createUserWithSignupGift(connection, credentials, passwordHash);
-    });
+    const user = await this.#createUserTransaction(credentials, passwordHash);
 
     return this.#createSessionPayload(user);
   }
@@ -66,11 +72,50 @@ export class AuthService {
     }
   }
 
+  // 校验注册 IP 是否可用，确保每个来源地址只能注册一次
+  async #assertRegisterIpAvailable(registerIp) {
+    if (!registerIp) {
+      throw new Error("无法识别注册来源，请稍后重试");
+    }
+
+    const existingUser = await this.userRepository.findByRegisterIp(registerIp);
+
+    if (existingUser) {
+      throw new Error(DUPLICATE_REGISTER_IP_MESSAGE);
+    }
+  }
+
+  // 执行注册事务，并把数据库唯一索引错误转换成业务提示
+  async #createUserTransaction(credentials, passwordHash) {
+    try {
+      return await runInTransaction(this.pool, async (connection) => {
+        return this.#createUserWithSignupGift(connection, credentials, passwordHash);
+      });
+    } catch (error) {
+      this.#throwFriendlyDuplicateError(error);
+      throw error;
+    }
+  }
+
+  // 将注册唯一索引冲突转换成用户可理解的错误
+  #throwFriendlyDuplicateError(error) {
+    const message = String(error.message ?? "");
+
+    if (message.includes("idx_users_register_ip")) {
+      throw new Error(DUPLICATE_REGISTER_IP_MESSAGE);
+    }
+
+    if (message.includes("idx_users_email") || message.includes("users.email")) {
+      throw new Error("该邮箱已注册，请直接登录");
+    }
+  }
+
   // 创建用户并插入注册送额度流水
   async #createUserWithSignupGift(connection, credentials, passwordHash) {
     const userId = await this.userRepository.createUser(connection, {
       username: credentials.email,
       email: credentials.email,
+      registerIp: credentials.registerIp,
       passwordHash: passwordHash.hash,
       passwordSalt: passwordHash.salt,
       balanceCents: this.signupCreditCents
@@ -121,5 +166,6 @@ export class Credentials {
     this.loginIdentifier = this.email || this.username;
     this.password = String(input.password ?? "");
     this.verificationCode = String(input.verificationCode ?? "");
+    this.registerIp = String(input.registerIp ?? "").trim();
   }
 }

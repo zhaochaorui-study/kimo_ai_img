@@ -114,12 +114,17 @@ test("database bootstrap creates users with email support", async () => {
   const source = await readFile(new URL("../src/database/mysqlClient.mjs", import.meta.url), "utf8");
 
   assert.match(source, /email VARCHAR\(128\) NULL UNIQUE/);
+  assert.match(source, /register_ip VARCHAR\(64\) NULL UNIQUE/);
   assert.match(source, /username VARCHAR\(64\) NOT NULL UNIQUE/);
   assert.match(source, /await ensureUsersEmailColumnExists\(pool\);/);
+  assert.match(source, /await ensureUsersRegisterIpColumnExists\(pool\);/);
   assert.match(source, /async function ensureUsersEmailColumnExists\(pool\)/);
+  assert.match(source, /async function ensureUsersRegisterIpColumnExists\(pool\)/);
   assert.match(source, /ALTER TABLE users ADD COLUMN email VARCHAR\(128\) NULL AFTER username/);
+  assert.match(source, /ALTER TABLE users ADD COLUMN register_ip VARCHAR\(64\) NULL AFTER email/);
   assert.match(source, /UPDATE users SET email = username WHERE email IS NULL/);
   assert.match(source, /ALTER TABLE users ADD UNIQUE INDEX idx_users_email \(email\)/);
+  assert.match(source, /ALTER TABLE users ADD UNIQUE INDEX idx_users_register_ip \(register_ip\)/);
 });
 
 // 创建临时 .env 文件，隔离配置加载测试

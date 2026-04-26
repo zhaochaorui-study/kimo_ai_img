@@ -131,7 +131,12 @@ async function handlePublicGallery(request, response, services) {
 // 处理注册接口
 async function handleRegister(request, response, services) {
   const payload = await readJsonBody(request);
-  const result = await services.authService.register(new Credentials(payload));
+  const credentials = new Credentials({
+    ...payload,
+    registerIp: resolveClientIp(request)
+  });
+
+  const result = await services.authService.register(credentials);
 
   sendOk(response, result);
 }
@@ -150,6 +155,27 @@ async function handleSendCode(request, response, services) {
   const result = await services.verificationService.sendCode(payload.email);
 
   sendOk(response, result);
+}
+
+// 解析客户端 IP，优先使用反向代理透传头
+function resolveClientIp(request) {
+  const forwardedIp = resolveForwardedIp(request.headers["x-forwarded-for"]);
+
+  if (forwardedIp) return forwardedIp;
+
+  return normalizeClientIp(request.headers["x-real-ip"] || request.socket.remoteAddress);
+}
+
+// 从 X-Forwarded-For 提取首个客户端 IP
+function resolveForwardedIp(headerValue) {
+  const firstIp = String(headerValue ?? "").split(",").map((item) => item.trim()).find(Boolean);
+
+  return normalizeClientIp(firstIp);
+}
+
+// 标准化客户端 IP，去掉 IPv4 映射前缀
+function normalizeClientIp(value) {
+  return String(value ?? "").trim().replace(/^::ffff:/, "");
 }
 
 // 处理需要登录的 API 请求
@@ -340,10 +366,11 @@ function resolveErrorStatus(error) {
   if (message.includes("登录已失效")) return 401;
   if (message.includes("用户名或密码")) return 401;
   if (message.includes("Duplicate")) return 409;
+  if (message.includes("已注册")) return 409;
   if (message.includes("不存在")) return 404;
   if (message.includes("余额不足")) return 402;
   if (message.includes("请求体过大")) return 413;
-  if (message.includes("不合法") || message.includes("至少") || message.includes("必须")) return 400;
+  if (message.includes("不合法") || message.includes("至少") || message.includes("必须") || message.includes("仅支持")) return 400;
 
   return 500;
 }

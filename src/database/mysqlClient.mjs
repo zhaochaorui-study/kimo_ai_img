@@ -24,6 +24,7 @@ async function ensureDatabaseExists(config) {
 async function ensureTablesExist(pool) {
   await pool.query(createUsersTableSql());
   await ensureUsersEmailColumnExists(pool);
+  await ensureUsersRegisterIpColumnExists(pool);
   await pool.query(createTransactionsTableSql());
   await pool.query(createGenerationsTableSql());
 }
@@ -45,6 +46,24 @@ async function ensureUsersEmailUniqueIndex(pool) {
   if (await hasUniqueColumnIndex(pool, "users", "email")) return;
 
   await pool.query("ALTER TABLE users ADD UNIQUE INDEX idx_users_email (email)");
+}
+
+// 确保 users.register_ip 有字段和唯一索引，用数据库兜底同 IP 重复注册
+async function ensureUsersRegisterIpColumnExists(pool) {
+  if (await hasTableColumn(pool, "users", "register_ip")) {
+    await ensureUsersRegisterIpUniqueIndex(pool);
+    return;
+  }
+
+  await pool.query("ALTER TABLE users ADD COLUMN register_ip VARCHAR(64) NULL AFTER email");
+  await ensureUsersRegisterIpUniqueIndex(pool);
+}
+
+// 确保 users.register_ip 有唯一索引，防止并发注册绕过业务检查
+async function ensureUsersRegisterIpUniqueIndex(pool) {
+  if (await hasUniqueColumnIndex(pool, "users", "register_ip")) return;
+
+  await pool.query("ALTER TABLE users ADD UNIQUE INDEX idx_users_register_ip (register_ip)");
 }
 
 // 查询表字段是否存在
@@ -98,6 +117,7 @@ function createUsersTableSql() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(64) NOT NULL UNIQUE,
       email VARCHAR(128) NULL UNIQUE,
+      register_ip VARCHAR(64) NULL UNIQUE,
       password_hash VARCHAR(128) NOT NULL,
       password_salt VARCHAR(64) NOT NULL,
       balance_cents INT NOT NULL DEFAULT 0,

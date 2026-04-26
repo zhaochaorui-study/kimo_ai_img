@@ -24,11 +24,28 @@ export class UserRepository {
     return rows[0] ?? null;
   }
 
+  // 根据注册 IP 查询用户账号
+  async findByRegisterIp(registerIp) {
+    const [rows] = await this.pool.execute(
+      "SELECT id, username, email FROM users WHERE register_ip = ? LIMIT 1",
+      [registerIp]
+    );
+
+    return rows[0] ?? null;
+  }
+
   // 在事务中创建用户账号
   async createUser(connection, account) {
     const [result] = await connection.execute(
-      "INSERT INTO users (username, email, password_hash, password_salt, balance_cents) VALUES (?, ?, ?, ?, ?)",
-      [account.username, account.email, account.passwordHash, account.passwordSalt, account.balanceCents]
+      "INSERT INTO users (username, email, register_ip, password_hash, password_salt, balance_cents) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        account.username,
+        account.email,
+        account.registerIp,
+        account.passwordHash,
+        account.passwordSalt,
+        account.balanceCents
+      ]
     );
 
     return Number(result.insertId);

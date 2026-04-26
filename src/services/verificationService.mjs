@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { assertAllowedRegisterEmailDomain } from "../security/emailPolicy.mjs";
 
 const DEFAULT_CODE_TTL_SECONDS = 300;
 const DEFAULT_CODE_PREFIX = "create_img_web:verify_code:";
@@ -20,6 +21,9 @@ export class VerificationService {
   async sendCode(email) {
     const normalizedEmail = this.#normalizeEmail(email);
     this.#validateEmail(normalizedEmail);
+
+    // 调用邮箱白名单校验，避免向非目标邮箱发送注册验证码
+    assertAllowedRegisterEmailDomain(normalizedEmail);
 
     const cooldownKey = this.#cooldownKey(normalizedEmail);
     const remainingCooldown = await this.#getRemainingCooldown(cooldownKey);
