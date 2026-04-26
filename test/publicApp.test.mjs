@@ -186,6 +186,18 @@ test("gallery detail panel follows the same visible items as image previews", as
   assert.doesNotMatch(source, /function selectedMyGalleryItem\(\) {\s*return findSelectedItem\(state\.myGallery, state\.selectedMyGalleryId\);/);
 });
 
+test("gallery date formatting tolerates missing and mysql dates", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /createdAt: new Date\(\)\.toISOString\(\)/);
+  assert.match(source, /function formatDate\(value\) \{[\s\S]*const date = parseDateValue\(value\);[\s\S]*if \(!date\) return "暂无时间";/);
+  assert.match(source, /function parseDateValue\(value\)/);
+  assert.match(source, /Number\.isNaN\(date\.getTime\(\)\) \? null : date;/);
+  assert.match(source, /function normalizeDateValue\(value\)/);
+  assert.match(source, /String\(value\)\.trim\(\)\.replace\(" ", "T"\);/);
+  assert.doesNotMatch(source, /\.format\(new Date\(value\)\)/);
+});
+
 test("gallery cards update the detail panel on hover", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 

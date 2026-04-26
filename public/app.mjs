@@ -1866,6 +1866,7 @@ function galleryItems() {
     ratio: "1:1",
     costCents: 0,
     status: "demo",
+    createdAt: new Date().toISOString(),
     images: [image]
   }));
 }
@@ -1901,13 +1902,34 @@ function formatFileSize(bytes) {
 
 // 格式化日期
 function formatDate(value) {
+  const date = parseDateValue(value);
+
+  if (!date) return "暂无时间";
+
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
-  }).format(new Date(value));
+  }).format(date);
+}
+
+// 解析后端或本地兜底日期，避免非法日期拖垮整页渲染
+function parseDateValue(value) {
+  if (!value) return null;
+
+  const normalizedValue = normalizeDateValue(value);
+  const date = new Date(normalizedValue);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+// 兼容 MySQL DATETIME 字符串和标准 ISO 日期
+function normalizeDateValue(value) {
+  if (value instanceof Date || typeof value === "number") return value;
+
+  return String(value).trim().replace(" ", "T");
 }
 
 // 转义 HTML，避免提示词注入页面
