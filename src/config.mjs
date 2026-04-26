@@ -5,6 +5,8 @@ import { createImageStorageConfig } from "./services/imageStorageService.mjs";
 
 const PROJECT_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LOCAL_ENV_FILE_PATH = join(PROJECT_ROOT, ".env");
+const DEFAULT_IMAGE_API_TIMEOUT_MS = 600000;
+const DEFAULT_SERVER_IMAGE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024;
 
 // 创建应用配置，统一编排各模块配置来源
 export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
@@ -18,6 +20,7 @@ export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
     database: createDatabaseConfig(runtimeEnv),
     redis: createRedisConfig(runtimeEnv),
     imageApi: createImageApiConfig(runtimeEnv),
+    server: createServerConfig(runtimeEnv),
     imageStorage: createImageStorageConfig({
       platform: process.platform,
       projectRoot: join(PROJECT_ROOT)
@@ -54,6 +57,13 @@ function createDatabaseConfig(runtimeEnv) {
   });
 }
 
+// 创建服务端运行限制配置，集中管理上传下载相关边界
+function createServerConfig(runtimeEnv) {
+  return Object.freeze({
+    imageUploadMaxBytes: readConfigNumber(runtimeEnv, "SERVER_IMAGE_UPLOAD_MAX_BYTES", DEFAULT_SERVER_IMAGE_UPLOAD_MAX_BYTES)
+  });
+}
+
 // 创建图片服务请求配置对象，避免密钥和请求地址硬编码在源码里
 function createImageApiConfig(runtimeEnv) {
   const baseUrl = normalizeBaseUrl(readConfigValue(runtimeEnv, "KIMO_API_BASE_URL", ""));
@@ -63,7 +73,7 @@ function createImageApiConfig(runtimeEnv) {
     generationUrl: readConfigValue(runtimeEnv, "KIMO_GENERATION_URL", createImageApiUrl(baseUrl, "/v1/images/generations")),
     editUrl: readConfigValue(runtimeEnv, "KIMO_EDIT_URL", createImageApiUrl(baseUrl, "/v1/images/edits")),
     model: readConfigValue(runtimeEnv, "KIMO_IMAGE_MODEL", "gpt-image-1"),
-    timeoutMs: readConfigNumber(runtimeEnv, "KIMO_API_TIMEOUT_MS", 300000),
+    timeoutMs: readConfigNumber(runtimeEnv, "KIMO_API_TIMEOUT_MS", DEFAULT_IMAGE_API_TIMEOUT_MS),
     maxRetries: readConfigNumber(runtimeEnv, "KIMO_API_MAX_RETRIES", 1)
   });
 }

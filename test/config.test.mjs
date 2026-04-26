@@ -76,6 +76,20 @@ test("createAppConfig exposes image API timeout and retry settings", () => {
   assert.equal(appConfig.imageApi.maxRetries, 2);
 });
 
+test("createAppConfig defaults image API timeout to ten minutes", () => {
+  const appConfig = createAppConfig(Object.freeze({}));
+
+  assert.equal(appConfig.imageApi.timeoutMs, 600000);
+});
+
+test("createAppConfig exposes server upload size limits", () => {
+  const appConfig = createAppConfig(Object.freeze({
+    SERVER_IMAGE_UPLOAD_MAX_BYTES: "104857600"
+  }));
+
+  assert.equal(appConfig.server.imageUploadMaxBytes, 104857600);
+});
+
 test("createAppConfig keeps default signup credit and generation cost at ten credits", () => {
   const appConfig = createAppConfig(Object.freeze({}));
 

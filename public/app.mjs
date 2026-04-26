@@ -36,6 +36,7 @@ const state = {
 
 const app = document.querySelector("#app");
 const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
+const REFERENCE_IMAGE_MAX_BYTES = 48 * 1024 * 1024;
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -1017,8 +1018,8 @@ function handleReferenceFile(event) {
   const file = event.target.files?.[0];
 
   if (!file) return;
-  if (file.size > 10 * 1024 * 1024) {
-    showToast("参考图不能超过 10MB", "error");
+  if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
+    showToast(`参考图不能超过 ${formatFileSize(REFERENCE_IMAGE_MAX_BYTES)}`, "error");
     return;
   }
 
@@ -1301,6 +1302,13 @@ function calculateCostCents() {
 // 格式化金额
 function formatMoney(cents) {
   return `$${(Number(cents ?? 0) / 100).toFixed(2)}`;
+}
+
+// 格式化文件大小，用于展示上传限制
+function formatFileSize(bytes) {
+  const megabytes = Number(bytes ?? 0) / 1024 / 1024;
+
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)}MB`;
 }
 
 // 格式化日期

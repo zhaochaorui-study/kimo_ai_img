@@ -222,7 +222,8 @@ class AuthedRouteHandlers {
 
   // 调用图文生图业务流程
   async imageEdit() {
-    const payload = await readJsonBody(this.request, 16 * 1024 * 1024);
+    // 调用配置化请求体读取，放大参考图上传容量并保留服务端保护阈值
+    const payload = await readJsonBody(this.request, APP_CONFIG.server.imageUploadMaxBytes);
     const result = await this.services.imageService.createImageEdits(this.session.userId, payload);
 
     sendOk(this.response, result);
@@ -309,6 +310,7 @@ function resolveErrorStatus(error) {
   if (message.includes("Duplicate")) return 409;
   if (message.includes("不存在")) return 404;
   if (message.includes("余额不足")) return 402;
+  if (message.includes("请求体过大")) return 413;
   if (message.includes("不合法") || message.includes("至少") || message.includes("必须")) return 400;
 
   return 500;

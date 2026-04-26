@@ -87,3 +87,13 @@ test("server streams static files and caches generated images", async () => {
   assert.match(source, /return "public, max-age=31536000, immutable"/);
   assert.doesNotMatch(source, /const content = await readFile\(safePath\)/);
 });
+
+test("upload limits are raised for larger reference images", async () => {
+  const publicSource = await readFile(PUBLIC_APP_PATH, "utf8");
+  const serverSource = await readFile(SERVER_PATH, "utf8");
+
+  assert.match(publicSource, /REFERENCE_IMAGE_MAX_BYTES\s*=\s*48\s*\*\s*1024\s*\*\s*1024/);
+  assert.match(publicSource, /参考图不能超过 \$\{formatFileSize\(REFERENCE_IMAGE_MAX_BYTES\)\}/);
+  assert.match(serverSource, /APP_CONFIG\.server\.imageUploadMaxBytes/);
+  assert.doesNotMatch(serverSource, /readJsonBody\(this\.request,\s*16\s*\*\s*1024\s*\*\s*1024\)/);
+});
