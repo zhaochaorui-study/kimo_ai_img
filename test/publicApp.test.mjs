@@ -63,10 +63,24 @@ test("mobile core content and feedback surfaces adapt to small screens", async (
   assert.match(source, /grid-template-columns:\s*minmax\(0, 1fr\);/);
   assert.match(source, /min-height:\s*clamp\(280px, 48dvh, 460px\);/);
   assert.match(source, /font-size:\s*16px;/);
-  assert.match(source, /bottom:\s*calc\(var\(--mobile-bottom-nav-height\) \+ 14px\);/);
+  assert.match(source, /top:\s*50%;/);
+  assert.match(source, /left:\s*50%;/);
+  assert.match(source, /transform:\s*translate\(-50%, -50%\);/);
   assert.match(source, /white-space:\s*normal;/);
   assert.match(source, /max-height:\s*calc\(100dvh - 44px\);/);
   assert.match(source, /border-radius:\s*24px 24px 0 0;/);
+});
+
+test("mobile auth page fits without scrolling by compressing the hero", async () => {
+  const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /\.auth-page \{[\s\S]*?height:\s*100dvh;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(source, /\.auth-left \{[\s\S]*?min-height:\s*96px;[\s\S]*?padding:\s*12px 16px 10px;/);
+  assert.match(source, /\.auth-logo-row \{[\s\S]*?margin-bottom:\s*12px;/);
+  assert.match(source, /\.auth-hero h1 \{[\s\S]*?font-size:\s*32px;/);
+  assert.match(source, /\.auth-hero-desc \{[\s\S]*?display:\s*none;/);
+  assert.match(source, /\.auth-right \{[\s\S]*?padding:\s*16px;/);
+  assert.match(source, /\.auth-tabs-row \{[\s\S]*?margin-bottom:\s*14px;/);
 });
 
 test("gallery always uses public items and history uses current user items", async () => {
