@@ -3351,29 +3351,43 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .auth-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     width: 100%;
     min-height: 0;
     height: 100%;
-    grid-template-rows: auto minmax(0, 1fr);
     border-radius: 0;
   }
 
   .auth-left {
-    min-height: 96px;
-    padding: 12px 16px 10px;
+    flex: 0 0 clamp(104px, 16dvh, 132px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 0;
+    padding: 14px 16px 4px;
   }
 
   .auth-left::before,
-  .auth-left::after {
+  .auth-left::after,
+  .auth-hero,
+  .auth-celestial,
+  .auth-footer {
     display: none;
   }
 
   .auth-left-inner {
+    display: flex;
+    justify-content: center;
+    width: 100%;
     min-height: 0;
   }
 
   .auth-logo-row {
-    margin-bottom: 12px;
+    margin-bottom: 0;
+    justify-content: center;
   }
 
   .auth-logo-mark {
@@ -3391,57 +3405,62 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 21px;
   }
 
-  .auth-hero h1 {
-    font-size: 32px;
-    margin-bottom: 4px;
-  }
-
-  .auth-hero-sub {
-    font-size: 16px;
-  }
-
-  .auth-hero-desc {
-    display: none;
-  }
-
   .auth-right {
-    width: calc(100% - 20px);
-    align-self: start;
-    margin: 0 auto;
-    padding: 16px;
+    flex: 0 1 auto;
+    width: min(calc(100% - 32px), 420px);
+    min-height: 0;
+    max-height: calc(100dvh - 156px);
+    align-self: center;
+    margin: 0 auto auto;
+    overflow: hidden;
+    padding: 16px 16px 14px;
     border-radius: 22px;
   }
 
   .auth-tabs-row {
-    margin-bottom: 14px;
-  }
-
-  .auth-form-header {
     margin-bottom: 12px;
   }
 
+  .auth-tab {
+    height: 40px;
+    font-size: 18px;
+  }
+
+  .auth-form-header {
+    margin-bottom: 10px;
+  }
+
   .auth-form-header h2 {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .auth-form-header p {
     font-size: 13px;
+    line-height: 1.35;
   }
 
   .auth-input-group {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+  }
+
+  .auth-input-group label {
+    margin-bottom: 5px;
+    font-size: 13px;
   }
 
   .auth-options {
-    margin: 2px 0 14px;
+    margin: 0 0 10px;
   }
 
   .auth-register-link {
-    padding-top: 12px;
+    margin-top: 10px;
+    padding-top: 0;
+    font-size: 14px;
   }
 
   .auth-input-wrap input {
-    min-height: 48px;
+    height: 46px;
+    min-height: 46px;
     font-size: 16px;
   }
 

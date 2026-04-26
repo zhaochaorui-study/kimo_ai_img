@@ -71,16 +71,17 @@ test("mobile core content and feedback surfaces adapt to small screens", async (
   assert.match(source, /border-radius:\s*24px 24px 0 0;/);
 });
 
-test("mobile auth page fits without scrolling by compressing the hero", async () => {
+test("mobile auth page centers the form under a balanced logo area", async () => {
   const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
 
   assert.match(source, /\.auth-page \{[\s\S]*?height:\s*100dvh;[\s\S]*?overflow:\s*hidden;/);
-  assert.match(source, /\.auth-left \{[\s\S]*?min-height:\s*96px;[\s\S]*?padding:\s*12px 16px 10px;/);
-  assert.match(source, /\.auth-logo-row \{[\s\S]*?margin-bottom:\s*12px;/);
-  assert.match(source, /\.auth-hero h1 \{[\s\S]*?font-size:\s*32px;/);
-  assert.match(source, /\.auth-hero-desc \{[\s\S]*?display:\s*none;/);
-  assert.match(source, /\.auth-right \{[\s\S]*?padding:\s*16px;/);
-  assert.match(source, /\.auth-tabs-row \{[\s\S]*?margin-bottom:\s*14px;/);
+  assert.match(source, /\.auth-wrapper \{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;[\s\S]*?align-items:\s*center;/);
+  assert.match(source, /\.auth-left \{[\s\S]*?flex:\s*0 0 clamp\(104px, 16dvh, 132px\);[\s\S]*?justify-content:\s*center;/);
+  assert.match(source, /\.auth-logo-row \{[\s\S]*?margin-bottom:\s*0;[\s\S]*?justify-content:\s*center;/);
+  assert.match(source, /\.auth-hero,[\s\S]*?\.auth-celestial,[\s\S]*?\.auth-footer \{[\s\S]*?display:\s*none;/);
+  assert.match(source, /\.auth-right \{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?width:\s*min\(calc\(100% - 32px\), 420px\);[\s\S]*?margin:\s*0 auto auto;/);
+  assert.match(source, /\.auth-tab \{[\s\S]*?height:\s*40px;[\s\S]*?font-size:\s*18px;/);
+  assert.match(source, /\.auth-input-wrap input \{[\s\S]*?height:\s*46px;/);
 });
 
 test("gallery always uses public items and history uses current user items", async () => {
