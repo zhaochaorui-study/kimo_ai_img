@@ -6,6 +6,14 @@ const PUBLIC_APP_PATH = new URL("../public/app.mjs", import.meta.url);
 const PUBLIC_STYLE_PATH = new URL("../public/styles.css", import.meta.url);
 const SERVER_PATH = new URL("../src/server.mjs", import.meta.url);
 
+// 提取单个 CSS 规则块，避免跨规则正则误判
+function extractCssRule(source, selector) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = [...source.matchAll(new RegExp(`${escapedSelector} \\{[^}]*\\}`, "g"))];
+
+  return matches.at(-1)?.[0] ?? "";
+}
+
 test("public app defaults to one square image and ten credits per generation", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
@@ -82,6 +90,21 @@ test("generating preview renders animated image aura", async () => {
   assert.match(styleSource, /@keyframes generationAura/);
   assert.match(styleSource, /@keyframes generationSweep/);
   assert.match(styleSource, /prefers-reduced-motion: reduce/);
+});
+
+test("generating aura uses composited smooth loop animations", async () => {
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+  const stateBlock = extractCssRule(styleSource, ".image-generation-state");
+  const auraBlock = extractCssRule(styleSource, ".image-generation-state::before");
+  const spanBlock = extractCssRule(styleSource, ".generation-aura span");
+
+  assert.match(stateBlock, /contain: paint;/);
+  assert.match(auraBlock, /animation: generationAura 8s linear infinite;/);
+  assert.match(auraBlock, /transform: translate3d/);
+  assert.doesNotMatch(auraBlock, /filter: blur/);
+  assert.match(spanBlock, /animation: generationBreathe/);
+  assert.match(styleSource, /@keyframes generationBreathe/);
+  assert.match(styleSource, /@keyframes generationAura \{[\s\S]*translate3d/);
 });
 
 test("generation progress updates do not remount the whole app", async () => {
