@@ -1145,6 +1145,7 @@ function renderChips(key, values) {
 let clickDelegated = false;
 let keydownDelegated = false;
 let hoverDelegated = false;
+let documentClickDelegated = false;
 
 // 绑定页面事件
 function bindEvents() {
@@ -1166,6 +1167,10 @@ function bindEvents() {
     app.addEventListener("mouseover", handleGalleryPreviewHover);
     hoverDelegated = true;
   }
+  if (!documentClickDelegated) {
+    document.addEventListener("click", handleDocumentClick);
+    documentClickDelegated = true;
+  }
 
   app.querySelectorAll("[data-select-key]").forEach((node) => node.addEventListener("change", () => { updateState(node.dataset.selectKey, node.value); render(); }));
   app.querySelectorAll("[data-slider]").forEach((node) => {
@@ -1179,6 +1184,15 @@ function bindEvents() {
   app.querySelectorAll("[data-number]").forEach((node) => node.addEventListener("change", () => { updateState(node.dataset.number, Number(node.value)); render(); }));
   bindDirectInputs();
   bindAuth();
+}
+
+// 点击头像菜单外部时关闭下拉菜单
+function handleDocumentClick(event) {
+  if (!state.userMenuOpen) return;
+  if (event.target.closest(".avatar-dropdown")) return;
+
+  state.userMenuOpen = false;
+  render();
 }
 
 // 事件委托处理所有点击

@@ -93,6 +93,22 @@ test("AuthService maps duplicate register IP database errors to friendly message
   );
 });
 
+test("AuthService maps duplicate username database errors to friendly message", async () => {
+  const userRepository = new MemoryUserRepository(null);
+  userRepository.createUserError = new Error("Duplicate entry 'user@qq.com' for key 'users.username'");
+  const service = createRegisterAuthService({ userRepository });
+
+  await assert.rejects(
+    () => service.register(new Credentials({
+      email: "user@qq.com",
+      password: "secret123",
+      verificationCode: "123456",
+      registerIp: "203.0.113.8"
+    })),
+    /该用户名已被占用，请换一个试试/
+  );
+});
+
 // 创建注册测试服务，隐藏测试依赖装配细节
 function createRegisterAuthService(options = {}) {
   const userRepository = options.userRepository ?? new MemoryUserRepository(null);

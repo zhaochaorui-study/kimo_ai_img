@@ -36,6 +36,39 @@ test("public auth page removes third party login entrances", async () => {
   assert.doesNotMatch(source, /关于我们|帮助中心|隐私政策|服务条款/);
 });
 
+test("user avatar menu closes when clicking outside the dropdown", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /let documentClickDelegated = false;/);
+  assert.match(source, /document\.addEventListener\("click", handleDocumentClick\);/);
+  assert.match(source, /function handleDocumentClick\(event\)/);
+  assert.match(source, /event\.target\.closest\("\.avatar-dropdown"\)/);
+  assert.match(source, /state\.userMenuOpen = false;/);
+});
+
+test("mobile layout reserves safe areas and uses touch-friendly navigation", async () => {
+  const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /--mobile-topbar-height:\s*56px;/);
+  assert.match(source, /--mobile-bottom-nav-height:\s*calc\(68px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(source, /height:\s*calc\(100dvh - var\(--mobile-topbar-height\) - var\(--mobile-bottom-nav-height\)\);/);
+  assert.match(source, /padding:\s*14px 14px calc\(16px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(source, /height:\s*var\(--mobile-bottom-nav-height\);/);
+  assert.match(source, /touch-action:\s*manipulation;/);
+});
+
+test("mobile core content and feedback surfaces adapt to small screens", async () => {
+  const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /grid-template-columns:\s*minmax\(0, 1fr\);/);
+  assert.match(source, /min-height:\s*clamp\(280px, 48dvh, 460px\);/);
+  assert.match(source, /font-size:\s*16px;/);
+  assert.match(source, /bottom:\s*calc\(var\(--mobile-bottom-nav-height\) \+ 14px\);/);
+  assert.match(source, /white-space:\s*normal;/);
+  assert.match(source, /max-height:\s*calc\(100dvh - 44px\);/);
+  assert.match(source, /border-radius:\s*24px 24px 0 0;/);
+});
+
 test("gallery always uses public items and history uses current user items", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 

@@ -3181,9 +3181,245 @@ input[type="range"]::-webkit-slider-thumb {
     height: 92px;
   }
 
+  :root {
+    --mobile-topbar-height: 56px;
+    --mobile-bottom-nav-height: calc(68px + env(safe-area-inset-bottom));
+  }
+
+  body {
+    touch-action: manipulation;
+    overscroll-behavior-x: none;
+  }
+
+  .studio-frame {
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .topbar {
+    height: var(--mobile-topbar-height);
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  }
+
+  .brand-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .top-actions {
+    gap: 8px;
+  }
+
+  .avatar,
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    touch-action: manipulation;
+  }
+
+  .avatar-menu {
+    min-width: 160px;
+    right: -4px;
+    border-radius: 18px;
+    z-index: 120;
+  }
+
+  .avatar-menu button {
+    min-height: 44px;
+    padding: 0 16px;
+  }
+
+  .layout {
+    height: calc(100dvh - var(--mobile-topbar-height) - var(--mobile-bottom-nav-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .workspace {
+    padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workbench-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    min-height: 100%;
+  }
+
+  .tool-panel {
+    padding: 14px;
+    gap: 12px;
+    border-radius: 20px;
+  }
+
+  .module-tabs .tab-btn {
+    min-height: 36px;
+    justify-content: flex-start;
+    font-size: 16px;
+  }
+
+  .field {
+    gap: 7px;
+  }
+
+  textarea {
+    min-height: 132px;
+    font-size: 16px;
+  }
+
+  select,
+  input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .chip {
+    min-height: 44px;
+    height: auto;
+    padding: 0 10px;
+  }
+
+  .toggle-field {
+    min-height: 48px;
+  }
+
+  .stage {
+    min-height: 0;
+    gap: 12px;
+    overflow: visible;
+  }
+
+  .preview-wrap {
+    min-height: clamp(280px, 48dvh, 460px);
+    padding: 16px;
+    flex: none;
+    border-radius: 20px;
+  }
+
+  .image-preview {
+    width: 100%;
+    border-radius: 16px;
+  }
+
+  .gallery-layout,
+  .detail-hero {
+    overflow: visible;
+  }
+
+  .gallery-layout > div:first-child {
+    overflow: visible;
+    height: auto;
+  }
+
+  .gallery-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .gallery-grid {
+    overflow: visible;
+    max-height: none;
+    gap: 12px;
+  }
+
+  .gallery-item > button:not(.gallery-card-action) {
+    min-height: 120px;
+  }
+
+  .gallery-card-action {
+    min-height: 40px !important;
+    padding: 0 14px;
+  }
+
+  .detail-panel {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .meta-list {
+    grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  }
+
+  .auth-page {
+    min-height: 100dvh;
+    overflow-y: auto;
+    padding: 12px 0 calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .auth-wrapper {
+    width: 100%;
+    min-height: auto;
+    border-radius: 0;
+  }
+
+  .auth-left {
+    min-height: 180px;
+    padding: 20px 18px 16px;
+  }
+
+  .auth-right {
+    width: calc(100% - 24px);
+    padding: 24px 16px;
+    border-radius: 24px;
+  }
+
+  .auth-input-wrap input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .auth-code-btn {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: calc(100dvh - 44px);
+    overflow-y: auto;
+    border-radius: 24px 24px 0 0;
+    padding: 22px 18px calc(22px + env(safe-area-inset-bottom));
+  }
+
+  .modal-actions {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .toast {
+    left: 14px;
+    right: 14px;
+    bottom: calc(var(--mobile-bottom-nav-height) + 14px);
+    max-width: none;
+    padding: 12px 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    z-index: 130;
+  }
+
+  .bottom-nav {
+    height: var(--mobile-bottom-nav-height);
+    padding: 6px 10px env(safe-area-inset-bottom);
+    align-items: flex-start;
+  }
+
+  .bottom-nav button {
+    min-height: 56px;
+    border-radius: 18px;
+    touch-action: manipulation;
+  }
+
   .primary-btn,
   .secondary-btn,
   .danger-btn {
-    min-height: 40px;
+    min-height: 48px;
+    touch-action: manipulation;
   }
 }

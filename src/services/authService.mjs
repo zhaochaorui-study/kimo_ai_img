@@ -108,6 +108,10 @@ export class AuthService {
     if (message.includes("idx_users_email") || message.includes("users.email")) {
       throw new Error("该邮箱已注册，请直接登录");
     }
+
+    if (message.includes("users.username")) {
+      throw new Error("该用户名已被占用，请换一个试试");
+    }
   }
 
   // 创建用户并插入注册送额度流水
