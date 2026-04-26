@@ -146,3 +146,15 @@ test("history public toggle api is wired through the authed server routes", asyn
   assert.match(serverSource, /request\.method === "POST" && url\.pathname\.startsWith\("\/api\/history\/"\) && url\.pathname\.endsWith\("\/toggle-public"\)/);
   assert.match(serverSource, /return routes\.togglePublic\(url\);/);
 });
+
+test("settings sidebar button is disabled until the settings view is ready", async () => {
+  const appSource = await readFile(PUBLIC_APP_PATH, "utf8");
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(appSource, /const DISABLED_SIDE_TARGETS = new Set\(\["settings"\]\);/);
+  assert.match(appSource, /function isDisabledSideTarget\(target\)/);
+  assert.match(appSource, /if \(isDisabledSideTarget\(target\)\) return;/);
+  assert.match(appSource, /aria-disabled="\$\{disabled\}"/);
+  assert.match(appSource, /\$\{disabled \? "disabled" : ""\}/);
+  assert.match(styleSource, /\.side-nav button:disabled/);
+});

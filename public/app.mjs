@@ -40,6 +40,7 @@ const state = {
 const app = document.querySelector("#app");
 const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
 const REFERENCE_IMAGE_MAX_BYTES = 48 * 1024 * 1024;
+const DISABLED_SIDE_TARGETS = new Set(["settings"]);
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -387,9 +388,15 @@ function renderBottomNav() {
 function renderSideButton(item, index) {
   const [target, iconName, label] = item;
   const active = resolveSideActive(target);
+  const disabled = isDisabledSideTarget(target);
   const divider = index === 2 || index === 4 || index === 6 ? "<div class=\"side-divider\"></div>" : "";
 
-  return `${divider}<button data-side="${target}" class="${active ? "is-active" : ""}">${icon(iconName)}<span>${label}</span></button>`;
+  return `${divider}<button data-side="${target}" class="${active ? "is-active" : ""}" aria-disabled="${disabled}" ${disabled ? "disabled" : ""}>${icon(iconName)}<span>${label}</span></button>`;
+}
+
+// 判断侧边栏目标是否暂不可用
+function isDisabledSideTarget(target) {
+  return DISABLED_SIDE_TARGETS.has(target);
 }
 
 // 判断侧边栏按钮是否处于选中态
@@ -1210,6 +1217,8 @@ function setView(view) {
 
 // 切换侧边栏目标
 function setSide(target) {
+  if (isDisabledSideTarget(target)) return;
+
   if (AUTH_REQUIRED_SIDES.has(target) && !state.user) {
     state.returnTo = target === "workspace-edit" ? "workspace" : target;
     state.view = "auth";
