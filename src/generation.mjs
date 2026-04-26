@@ -3,7 +3,7 @@ export const GenerationMode = Object.freeze({
   ImagePrompt: "image-prompt"
 });
 
-export const IMAGE_RATIOS = Object.freeze(["1:1", "3:4", "4:3", "16:9", "9:16"]);
+export const IMAGE_RATIOS = Object.freeze(["1:1", "4:3", "16:9"]);
 
 export const DEFAULT_GENERATION_MODEL = "Aurora XL v2";
 

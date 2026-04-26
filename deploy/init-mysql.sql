@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `generations` (
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_generations_user_created` (`user_id`, `created_at`),
+  INDEX `idx_generations_user_status` (`user_id`, `status`),
   INDEX `idx_generations_public` (`is_public`, `status`, `created_at`),
   CONSTRAINT `fk_generations_user`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)

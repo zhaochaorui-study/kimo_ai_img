@@ -16,18 +16,22 @@ export class ImageService {
 
   // 执行文生图任务
   async createTextImages(userId, input) {
+    await this.#assertNoRunningGeneration(userId);
     const request = this.#createGenerationRequest(GenerationMode.TextToImage, input);
     const generation = this.#createGenerationRecord(userId, request);
     const charge = await this.walletService.spendAndCreateGeneration(userId, generation);
+    await this.generationRepository.markProcessing(charge.generationId);
 
     return this.#completeRemoteGeneration(userId, charge.generationId, generation, request);
   }
 
   // 执行图文生图任务
   async createImageEdits(userId, input) {
+    await this.#assertNoRunningGeneration(userId);
     const request = this.#createGenerationRequest(GenerationMode.ImagePrompt, input);
     const generation = this.#createGenerationRecord(userId, request);
     const charge = await this.walletService.spendAndCreateGeneration(userId, generation);
+    await this.generationRepository.markProcessing(charge.generationId);
 
     return this.#completeRemoteEdit(userId, charge.generationId, generation, request, input);
   }
@@ -61,6 +65,15 @@ export class ImageService {
     const deleted = await this.generationRepository.deleteByUser(userId, generationId);
 
     if (!deleted) {
+      throw new Error("历史记录不存在");
+    }
+  }
+
+  // 切换历史记录的公开状态（加入/移出画廊）
+  async togglePublic(userId, generationId) {
+    const toggled = await this.generationRepository.togglePublicByUser(userId, generationId);
+
+    if (!toggled) {
       throw new Error("历史记录不存在");
     }
   }
@@ -125,6 +138,14 @@ export class ImageService {
   // 失败时标记任务并返还扣减额度
   async #refundFailedGeneration(userId, generationId, costCents, error) {
     await this.walletService.refundGeneration(userId, generationId, costCents, error.message);
+  }
+
+  // 校验用户当前没有进行中的生成任务
+  async #assertNoRunningGeneration(userId) {
+    const hasRunning = await this.generationRepository.hasPendingOrProcessing(userId);
+    if (hasRunning) {
+      throw new Error("您有正在生成的图片，请稍后再试");
+    }
   }
 
   // 保存远端返回图片到本地磁盘，业务层只继续处理服务器相对路径

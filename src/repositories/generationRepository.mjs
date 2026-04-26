@@ -17,6 +17,14 @@ export class GenerationRepository {
     return Number(result.insertId);
   }
 
+  // 标记生成记录为处理中
+  async markProcessing(generationId) {
+    await this.pool.execute(
+      "UPDATE generations SET status = 'processing' WHERE id = ?",
+      [generationId]
+    );
+  }
+
   // 标记生成记录成功，并保存服务器相对图片路径
   async markSucceeded(generationId, imagePaths) {
     await this.pool.execute(
@@ -31,6 +39,15 @@ export class GenerationRepository {
       "UPDATE generations SET status = 'failed', error_message = ? WHERE id = ?",
       [message, generationId]
     );
+  }
+
+  // 查询用户是否有正在进行的生成任务（pending 或 processing）
+  async hasPendingOrProcessing(userId) {
+    const [rows] = await this.pool.execute(
+      "SELECT 1 FROM generations WHERE user_id = ? AND status IN ('pending', 'processing') LIMIT 1",
+      [userId]
+    );
+    return rows.length > 0;
   }
 
   // 查询用户最近的生成历史
@@ -69,6 +86,16 @@ export class GenerationRepository {
   async removeFromPublicByUser(userId, generationId) {
     const [result] = await this.pool.execute(
       "UPDATE generations SET is_public = 0 WHERE user_id = ? AND id = ? AND is_public = 1",
+      [userId, generationId]
+    );
+
+    return result.affectedRows > 0;
+  }
+
+  // 切换当前用户生成记录的公开状态
+  async togglePublicByUser(userId, generationId) {
+    const [result] = await this.pool.execute(
+      "UPDATE generations SET is_public = IF(is_public = 1, 0, 1) WHERE user_id = ? AND id = ?",
       [userId, generationId]
     );
 

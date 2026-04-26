@@ -155,10 +155,8 @@ export class RemoteImageClient {
   #resolveImageSize(ratio) {
     const sizes = {
       "1:1": "1024x1024",
-      "3:4": "768x1024",
       "4:3": "1024x768",
-      "16:9": "1344x768",
-      "9:16": "768x1344"
+      "16:9": "1344x768"
     };
 
     return sizes[ratio] ?? sizes["4:3"];

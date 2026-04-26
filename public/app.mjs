@@ -15,9 +15,8 @@ const state = {
   history: [],
   selectedId: null,
   selectedMyGalleryId: null,
-  selectedHistoryId: null,
   generatedImages: [],
-  isGenerating: false,
+  generatingMode: "",
   progress: 0,
   toast: "",
   toastType: "",
@@ -31,7 +30,11 @@ const state = {
   seed: -1,
   isPublic: false,
   userMenuOpen: false,
-  returnTo: ""
+  returnTo: "",
+  historyPage: 1,
+  historyPageSize: 8,
+  historySelectedId: null,
+  lightboxImage: null
 };
 
 const app = document.querySelector("#app");
@@ -104,7 +107,19 @@ async function refreshHistory() {
   const payload = await api("/api/gallery");
 
   state.history = payload.items;
-  state.selectedHistoryId = selectExistingOrFirst(state.selectedHistoryId, state.history);
+  state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
+  syncGeneratingStateFromHistory();
+}
+
+// 根据历史记录中的 pending/processing 状态同步生成按钮状态
+function syncGeneratingStateFromHistory() {
+  const running = state.history.find((item) => item.status === "pending" || item.status === "processing");
+  if (running) {
+    state.generatingMode = running.mode;
+    state.progress = 48;
+  } else {
+    state.generatingMode = "";
+  }
 }
 
 // 刷新当前用户已加入公共画廊的图片
@@ -131,6 +146,20 @@ async function refreshPublicGallery() {
 function render() {
   app.innerHTML = state.view === "auth" ? renderAuth() : renderStudio();
   bindEvents();
+}
+
+// 渲染图片放大弹窗（Lightbox）
+function renderLightbox() {
+  if (!state.lightboxImage) return "";
+
+  return `
+    <div class="lightbox-backdrop" data-action="close-lightbox">
+      <button class="lightbox-close" data-action="close-lightbox" aria-label="关闭图片预览">x</button>
+      <div class="lightbox-content" role="dialog" aria-modal="true" aria-label="图片预览">
+        <img src="${state.lightboxImage}" alt="放大预览" loading="eager" decoding="async">
+      </div>
+    </div>
+  `;
 }
 
 // 渲染登录注册页
@@ -253,6 +282,7 @@ function renderStudio() {
     </div>
     ${renderRechargeModal()}
     ${renderToast()}
+    ${renderLightbox()}
   `;
 }
 
@@ -261,12 +291,8 @@ function renderTopbar() {
   return `
     <header class="topbar">
       <div class="brand"><span class="brand-icon">🐱</span><span>创想图像工作室</span></div>
-      <nav class="top-nav">
-        ${state.user ? topButton("workspace", "工作台") : ""}
+      <nav class="top-nav" style="display:none">
         ${topButton("gallery", "画廊")}
-        ${state.user ? topButton("my-gallery", "我的画廊") : ""}
-        ${state.user ? topButton("history", "历史") : ""}
-        ${state.user ? topButton("resources", "资源") : ""}
       </nav>
       <div class="top-actions">
         <button class="icon-btn" title="通知">${icon("bell")}</button>
@@ -405,14 +431,14 @@ function renderPromptPanel() {
         <div class="counter">${state.prompt.length} / 1000</div>
       </div>
       <div class="field"><label>模型</label>${renderSelect("modelName", ["Kimo Image", "Aurora XL v2"])}</div>
-      <div class="field"><label>宽高比</label>${renderChips("ratio", ["1:1", "3:4", "4:3", "16:9", "9:16"])}</div>
+      <div class="field"><label>宽高比</label>${renderChips("ratio", ["1:1", "4:3", "16:9"])}</div>
       <div class="field"><label>生成数量</label>${renderChips("quantity", [1, 2, 4])}</div>
-      ${state.mode === "image-prompt" ? renderSimilaritySlider() : ""}
+
       <div class="toggle-field">
         <label>加入公共画廊</label>
         <div class="toggle-switch ${state.isPublic ? "is-on" : ""}" data-toggle="isPublic"></div>
       </div>
-      <button class="primary-btn" data-action="generate" ${state.isGenerating || !state.user ? "disabled" : ""}>${state.isGenerating ? "生成中..." : state.user ? "开始生成" : "请登录后生成"}</button>
+      <button class="primary-btn" data-action="generate" ${state.generatingMode === state.mode || !state.user ? "disabled" : ""}>${state.generatingMode === state.mode ? "生成中..." : state.user ? "开始生成" : "请登录后生成"}</button>
       <div class="cost">预计消耗 ${calculateCostCents()} 积分</div>
     </aside>
   `;
@@ -434,7 +460,7 @@ function renderUploadField() {
     <div class="field">
       <span class="upload-label">参考图像</span>
       <div class="upload-box">
-        ${state.referenceImage ? renderImageTag("reference-preview", state.referenceImage, "参考图") : "<div class=\"upload-placeholder\">上传 JPG / PNG，最大 10MB</div>"}
+        ${state.referenceImage ? `<div data-lightbox="${state.referenceImage}">${renderImageTag("reference-preview", state.referenceImage, "参考图")}</div>` : "<div class=\"upload-placeholder\">上传 JPG / PNG，最大 10MB</div>"}
         <input id="referenceInput" type="file" accept="image/png,image/jpeg,image/webp">
       </div>
     </div>
@@ -448,12 +474,13 @@ function renderTextStage() {
   const ratio = state.ratio;
   const resolution = getResolution(ratio);
   const aspectRatio = getAspectRatio(ratio);
+  const primaryLightboxImage = resolvePrimaryPreviewImage();
 
   if (quantity === 1) {
     return `
       <section class="stage">
         <div class="preview-wrap preview-grid-1" style="position:relative">
-          <div class="image-preview" style="aspect-ratio:${aspectRatio}">
+          <div class="image-preview" style="aspect-ratio:${aspectRatio}" data-lightbox="${primaryLightboxImage}">
             ${renderPrimaryImage()}
             <span class="preview-badge">${resolution}</span>
           </div>
@@ -473,7 +500,7 @@ function renderTextStage() {
     <section class="stage">
       <div class="preview-wrap ${gridClass}" style="position:relative">
         ${images.map((image) => `
-          <div class="image-preview">
+          <div class="image-preview" data-lightbox="${state.generatingMode === state.mode ? "" : image ?? ""}">
             ${renderImageContent(image)}
             <span class="preview-badge">${resolution}</span>
           </div>
@@ -539,6 +566,7 @@ function renderSettingsPanel() {
 // 渲染图文生成对比区
 function renderCompareStage() {
   const resolution = getResolution(state.ratio);
+  const primaryLightboxImage = resolvePrimaryPreviewImage();
   return `
     <section class="stage">
       <div class="preview-wrap" style="min-height:auto;padding:20px">
@@ -546,12 +574,12 @@ function renderCompareStage() {
         <div class="compare-grid">
           <div>
             <h3>原图（参考）</h3>
-            <div class="image-preview compare-card">${state.referenceImage ? renderImageTag("generated-image", state.referenceImage, "参考图") : "<div class=\"mock-still-life\"></div>"}</div>
+            <div class="image-preview compare-card" data-lightbox="${state.referenceImage ?? ""}">${state.referenceImage ? renderImageTag("generated-image", state.referenceImage, "参考图") : "<div class=\"mock-still-life\"></div>"}</div>
           </div>
           <div class="arrow-circle">${icon("arrow-right")}</div>
           <div>
             <h3>生成结果</h3>
-            <div class="image-preview compare-card">${renderPrimaryImage()}<span class="preview-badge">${resolution}</span></div>
+            <div class="image-preview compare-card" data-lightbox="${primaryLightboxImage}">${renderPrimaryImage()}<span class="preview-badge">${resolution}</span></div>
           </div>
         </div>
       </div>
@@ -560,21 +588,28 @@ function renderCompareStage() {
   `;
 }
 
-// 渲染主预览图片
+// 渲染主预览图片，只展示当前用户自己的生成结果
 function renderPrimaryImage() {
-  const image = state.generatedImages[0] ?? selectedGalleryItem()?.images?.[0];
+  if (state.generatingMode === state.mode) return renderGeneratingPreview();
 
-  return image ? renderImageTag("generated-image", image, "生成结果") : "<div class=\"mock-still-life\"></div>";
+  const image = state.generatedImages[0];
+
+  return image ? renderImageTag("generated-image", image, "生成结果") : renderEmptyPreview();
+}
+
+// 获取主预览图地址，生成中禁用点击放大
+function resolvePrimaryPreviewImage() {
+  if (state.generatingMode === state.mode) return "";
+
+  return state.generatedImages[0] ?? "";
 }
 
 // 根据宽高比获取分辨率字符串
 function getResolution(ratio) {
   const map = {
     "1:1": "1024 x 1024",
-    "3:4": "768 x 1024",
     "4:3": "1024 x 768",
-    "16:9": "1024 x 576",
-    "9:16": "576 x 1024"
+    "16:9": "1024 x 576"
   };
   return map[ratio] || "1024 x 768";
 }
@@ -587,17 +622,49 @@ function getAspectRatio(ratio) {
 
 // 渲染图片或占位图
 function renderImageContent(image) {
+  if (state.generatingMode === state.mode) return renderGeneratingPreview();
+
   if (isRenderableImage(image)) {
     return renderImageTag("generated-image", image, "生成结果");
   }
-  return `<div class="mock-still-life"></div>`;
+  return renderEmptyPreview();
 }
 
-// 渲染图片标签，统一开启懒加载和异步解码
+// 渲染默认空预览，替换旧版模拟图片占位
+function renderEmptyPreview() {
+  return `
+    <div class="image-empty-state" aria-label="等待生成">
+      <span class="image-empty-mark"></span>
+      <span class="image-empty-copy">等待生成</span>
+    </div>
+  `;
+}
+
+// 渲染生成中预览，用光晕和扫光提示任务正在进行
+function renderGeneratingPreview() {
+  return `
+    <div class="image-generation-state" aria-live="polite" aria-label="图片正在生成">
+      <div class="generation-aura">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="generation-core">
+        <span></span>
+      </div>
+      <div class="generation-status">
+        <strong>正在生成</strong>
+        <span>${Math.max(1, Math.round(state.progress))}%</span>
+      </div>
+    </div>
+  `;
+}
+
+// 渲染图片标签，统一开启懒加载和异步解码，支持点击放大
 function renderImageTag(className, source, alt) {
   const classAttribute = className ? ` class="${className}"` : "";
 
-  return `<img${classAttribute} ${IMAGE_LOAD_ATTRIBUTES} src="${source}" alt="${alt}">`;
+  return `<img${classAttribute} ${IMAGE_LOAD_ATTRIBUTES} src="${source}" alt="${alt}" data-lightbox="${source}">`;
 }
 
 // 判断图片地址是否可以直接交给浏览器渲染
@@ -624,14 +691,14 @@ function renderThumbStrip() {
 function renderThumb(image, index) {
   const content = isRenderableImage(image) ? renderImageTag("generated-image", image, "缩略图") : "<div class=\"mock-still-life\"></div>";
 
-  return `<div class="thumb ${index === 0 ? "is-active" : ""}">${content}</div>`;
+  return `<div class="thumb ${index === 0 ? "is-active" : ""}" data-lightbox="${image ?? ""}">${content}</div>`;
 }
 
 // 渲染生成进度
 function renderProgress() {
   return `
     <div class="progress-area">
-      <strong>${state.isGenerating ? "生成中..." : "等待生成"}</strong>
+      <strong>${state.generatingMode === state.mode ? "生成中..." : "等待生成"}</strong>
       <span style="float:right">${state.progress}%</span>
       <div class="progress-track"><div class="progress-bar" style="--progress:${state.progress}%"></div></div>
       <p class="empty-state">预计消耗 ${calculateCostCents()} 积分</p>
@@ -694,8 +761,7 @@ function renderGalleryItem(item) {
 
   return `
     <article class="gallery-item">
-      <button data-select="${item.id}">${image ? renderImageTag("", image, "生成图") : "<div class=\"mock-still-life\"></div>"}</button>
-      <span class="gallery-fav">${icon("heart")}</span>
+      <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "生成图") : "<div class=\"mock-still-life\"></div>"}</button>
     </article>
   `;
 }
@@ -706,8 +772,8 @@ function renderMyGalleryItem(item) {
 
   return `
     <article class="gallery-item my-gallery-item">
-      <button data-select="${item.id}">${image ? renderImageTag("", image, "我的画廊生成图") : "<div class=\"mock-still-life\"></div>"}</button>
-      <button class="gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
+      <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "我的画廊生成图") : "<div class=\"mock-still-life\"></div>"}</button>
+      <button class="gallery-card-action gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </article>
   `;
 }
@@ -720,7 +786,7 @@ function renderDetailPanel() {
 
   return `
     <aside class="detail-panel">
-      <div class="thumb">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
+      <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
         <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
@@ -752,7 +818,7 @@ function renderMyGalleryDetailPanel() {
 
   return `
     <aside class="detail-panel">
-      <div class="thumb">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "我的画廊选中图") : "<div class=\"mock-still-life\"></div>"}</div>
+      <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "我的画廊选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
         <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
@@ -767,63 +833,107 @@ function renderMyGalleryDetailPanel() {
   `;
 }
 
-// 渲染历史详情页
+// 渲染历史页面（瀑布流网格 + 右侧详情面板 + 分页）
 function renderDetail() {
+  const items = state.history.filter((item) => item.status === "succeeded" && item.images?.length);
+  const total = items.length;
+
+  if (!total) return "<p class=\"empty-state\">暂无历史记录，先去生成一张。</p>";
+
+  const totalPages = Math.max(1, Math.ceil(total / state.historyPageSize));
+  const page = Math.min(state.historyPage, totalPages);
+  const start = (page - 1) * state.historyPageSize;
+  const pageItems = items.slice(start, start + state.historyPageSize);
+
+  return `
+    <section class="gallery-layout">
+      <div>
+        <div class="gallery-toolbar">
+          <h2 class="gallery-title">生成历史</h2>
+          <span class="history-count">共 ${total} 条</span>
+        </div>
+        <div class="gallery-grid">${pageItems.map(renderHistoryGridItem).join("")}</div>
+        ${renderHistoryPagination(page, totalPages, total)}
+      </div>
+      ${renderHistoryDetailPanel()}
+    </section>
+  `;
+}
+
+// 渲染历史瀑布流网格项
+function renderHistoryGridItem(item) {
+  const image = item.images?.[0] ?? "";
+  const isActive = state.historySelectedId === item.id;
+  const isPublic = item.isPublic;
+
+  return `
+    <article class="gallery-item ${isActive ? "is-active" : ""}">
+      <button data-history-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "历史图片") : "<div class=\"mock-still-life\"></div>"}</button>
+      <button class="gallery-card-action gallery-toggle-btn ${isPublic ? "is-active" : ""}" data-action="toggle-public" data-toggle-public="${item.id}">${isPublic ? "移出画廊" : "加入公共画廊"}</button>
+    </article>
+  `;
+}
+
+// 渲染历史右侧详情面板
+function renderHistoryDetailPanel() {
   const item = selectedHistoryItem();
 
-  if (!item) return "<p class=\"empty-state\">暂无历史记录，先去生成一张。</p>";
+  if (!item) return "<aside class=\"detail-panel\"><p class=\"empty-state\">选择一张图片查看详情</p></aside>";
 
   const images = item.images ?? [];
   const variants = images.length > 1 ? images.slice(1) : [];
 
   return `
-    <section class="detail-hero">
-      <div>
-        <h2>
-          <button class="icon-btn" style="width:32px;height:32px" data-view="gallery">←</button>
-          ${formatDate(item.createdAt)}
-          <span style="margin-left:auto;display:flex;gap:8px">
-            <button class="icon-btn" style="width:32px;height:32px" title="收藏">${icon("heart")}</button>
-            <button class="icon-btn" style="width:32px;height:32px" title="下载" data-action="download">↓</button>
-            <button class="icon-btn" style="width:32px;height:32px" title="更多">⋯</button>
-          </span>
-        </h2>
-        <div class="detail-image">${images[0] ? renderImageTag("", images[0], "历史详情") : "<div class=\"mock-still-life\"></div>"}</div>
-        ${variants.length ? `
-          <div style="margin-top:8px">
-            <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">生成变体</div>
-            <div class="variants-row">
-              ${images.map((img, i) => `<div class="variant-thumb ${i === 0 ? "is-active" : ""}">${img ? renderImageTag("generated-image", img, "生成变体") : "<div class=\"mock-still-life\"></div>"}</div>`).join("")}
-            </div>
-          </div>
-        ` : ""}
+    <aside class="detail-panel">
+      <div class="thumb" data-lightbox="${images[0] ?? ""}">${images[0] ? renderImageTag("generated-image", images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
+      <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
+      <div class="meta-list">
+        <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
+        <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
+        <span>比例</span><strong>${escapeHtml(item.ratio)}</strong>
+        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
+        <span>消耗积分</span><strong>${item.costCents ?? 0}</strong>
       </div>
-      <aside class="detail-panel">
-        <h3 style="margin:0 0 12px;font-size:15px;color:var(--ink-dark)">提示词</h3>
-        <p style="font-size:14px;line-height:1.6;margin:0 0 16px">${escapeHtml(item.prompt)}</p>
-        <h3 style="margin:0 0 12px;font-size:15px;color:var(--ink-dark)">负面提示词</h3>
-        <p style="font-size:14px;line-height:1.6;margin:0 0 16px;color:var(--muted)">低清晰度、模糊、杂乱、文字、水印</p>
-        <div class="meta-list">
-          <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
-          <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
-          <span>比例</span><strong>${escapeHtml(item.ratio)} (${getResolution(item.ratio)})</strong>
-          <span>种子</span><strong>${item.id}</strong>
-          <span>CFG</span><strong>7.0</strong>
-          <span>采样器</span><strong>DPM++ 2M Karras</strong>
-          <span>步数</span><strong>30</strong>
-          <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
-          <span>消耗积分</span><strong>${item.costCents ?? 0}</strong>
+      <button class="secondary-btn" data-action="download" style="margin-top:14px;margin-bottom:8px">下载</button>
+      <button class="danger-btn" data-action="delete-item">删除</button>
+      ${variants.length ? `
+        <div style="margin-top:16px">
+          <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">生成变体</div>
+          <div class="variants-row">
+            ${images.map((img, i) => `<div class="variant-thumb ${i === 0 ? "is-active" : ""}" data-lightbox="${img ?? ""}">${img ? renderImageTag("generated-image", img, "生成变体") : "<div class=\"mock-still-life\"></div>"}</div>`).join("")}
+          </div>
         </div>
-        <div class="tag-row" style="margin-top:16px">
-          <span class="tag">极简</span>
-          <span class="tag">产品摄影</span>
-          <span class="tag">自然光</span>
-          <span class="tag">石材</span>
-          <span class="tag">几何</span>
-        </div>
-        <button class="danger-btn" data-action="delete-item" style="margin-top:16px">删除</button>
-      </aside>
-    </section>
+      ` : ""}
+    </aside>
+  `;
+}
+
+// 渲染历史分页控件
+function renderHistoryPagination(page, totalPages, total) {
+  if (totalPages <= 1) return "";
+
+  const pages = [];
+  const maxVisible = 5;
+  let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+  if (endPage - startPage + 1 < maxVisible) {
+    startPage = Math.max(1, endPage - maxVisible + 1);
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    pages.push(`<button class="page-btn ${i === page ? "is-active" : ""}" data-history-page="${i}">${i}</button>`);
+  }
+
+  return `
+    <div class="history-pagination" style="margin-top:12px">
+      <button class="page-btn" data-history-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
+      ${startPage > 1 ? "<span class=\"page-ellipsis\">…</span>" : ""}
+      ${pages.join("")}
+      ${endPage < totalPages ? "<span class=\"page-ellipsis\">…</span>" : ""}
+      <button class="page-btn" data-history-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+      <span class="page-info">${page} / ${totalPages} 页</span>
+    </div>
   `;
 }
 
@@ -839,12 +949,22 @@ function renderChips(key, values) {
 }
 
 let clickDelegated = false;
+let keydownDelegated = false;
 
 // 绑定页面事件
 function bindEvents() {
   if (!clickDelegated) {
     app.addEventListener("click", handleAppClick);
     clickDelegated = true;
+  }
+  if (!keydownDelegated) {
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && state.lightboxImage) {
+        state.lightboxImage = null;
+        render();
+      }
+    });
+    keydownDelegated = true;
   }
 
   app.querySelectorAll("[data-select-key]").forEach((node) => node.addEventListener("change", () => { updateState(node.dataset.selectKey, node.value); render(); }));
@@ -872,17 +992,35 @@ function handleAppClick(event) {
   const chip = event.target.closest("[data-chip]");
   if (chip) { setChip(chip); return; }
 
+  const lightboxTrigger = event.target.closest("[data-lightbox]");
+  if (lightboxTrigger && openLightboxFromTrigger(lightboxTrigger)) return;
+
   const select = event.target.closest("[data-select]");
   if (select) { selectGallery(Number(select.dataset.select)); return; }
 
   const toggle = event.target.closest("[data-toggle]");
   if (toggle) { toggleSetting(toggle.dataset.toggle); return; }
 
+  const historyPageBtn = event.target.closest("[data-history-page]");
+  if (historyPageBtn) {
+    const page = Number(historyPageBtn.dataset.historyPage);
+    if (page >= 1) { state.historyPage = page; render(); }
+    return;
+  }
+
+  const historySelect = event.target.closest("[data-history-select]");
+  if (historySelect) {
+    state.historySelectedId = Number(historySelect.dataset.historySelect);
+    render();
+    return;
+  }
+
   const action = event.target.closest("[data-action]");
   if (!action) return;
 
   const name = action.dataset.action;
-  if (name === "generate") generateImage();
+  if (name === "close-lightbox") closeLightbox(event);
+  else if (name === "generate") generateImage();
   else if (name === "open-recharge") showModal("recharge");
   else if (name === "open-auth") { state.returnTo = ""; setView("auth"); }
   else if (name === "close-modal") showModal("");
@@ -893,7 +1031,28 @@ function handleAppClick(event) {
   else if (name === "reuse-prompt") reusePrompt();
   else if (name === "download") downloadSelectedImage();
   else if (name === "remove-from-my-gallery") removeFromMyGallery(action);
+  else if (name === "toggle-public") togglePublic(action);
   else if (name === "delete-item") deleteSelectedItem();
+}
+
+// 打开放大预览，忽略空图片和占位图
+function openLightboxFromTrigger(trigger) {
+  const image = trigger.dataset.lightbox;
+
+  if (!isRenderableImage(image)) return false;
+  state.lightboxImage = image;
+  render();
+  return true;
+}
+
+// 关闭放大预览，仅响应遮罩层和关闭按钮
+function closeLightbox(event) {
+  const isBackdropClick = event.target.classList.contains("lightbox-backdrop");
+  const isCloseButtonClick = Boolean(event.target.closest(".lightbox-close"));
+
+  if (!isBackdropClick && !isCloseButtonClick) return;
+  state.lightboxImage = null;
+  render();
 }
 
 // 绑定直接输入控件
@@ -989,7 +1148,7 @@ function createGenerationPayload() {
 
 // 执行带进度的生成动作
 async function runGeneratingAction(work) {
-  state.isGenerating = true;
+  state.generatingMode = state.mode;
   state.progress = 12;
   render();
   const timer = setInterval(() => advanceProgress(), 700);
@@ -1002,7 +1161,7 @@ async function runGeneratingAction(work) {
     throw error;
   } finally {
     clearInterval(timer);
-    state.isGenerating = false;
+    state.generatingMode = "";
     render();
   }
 }
@@ -1046,6 +1205,7 @@ function setView(view) {
   }
   state.view = view;
   render();
+  refreshDataIfNeeded(view);
 }
 
 // 切换侧边栏目标
@@ -1059,12 +1219,28 @@ function setSide(target) {
   if (target === "workspace-edit") {
     state.view = "workspace";
     state.mode = "image-prompt";
+    state.generatedImages = [];
+    state.referenceImage = "";
   } else {
     state.view = target;
-    if (target === "workspace") state.mode = "text-to-image";
+    if (target === "workspace") {
+      state.mode = "text-to-image";
+      state.generatedImages = [];
+      state.referenceImage = "";
+    }
   }
 
   render();
+  refreshDataIfNeeded(target === "workspace-edit" ? "workspace" : target);
+}
+
+// 根据目标视图按需刷新数据，避免每次导航都全量刷新
+function refreshDataIfNeeded(view) {
+  if (!state.user) return;
+  if (view === "gallery") refreshPublicGallery().then(render);
+  if (view === "my-gallery") refreshMyGallery().then(render);
+  if (view === "history") refreshHistory().then(render);
+  if (view === "workspace" || view === "workspace-edit") refreshWallet().then(render);
 }
 
 // 更新芯片组选中值
@@ -1138,18 +1314,48 @@ async function removeFromMyGallery(action) {
   });
 }
 
+// 切换历史记录的公开状态（加入/移出画廊）
+async function togglePublic(action) {
+  const itemId = Number(action.dataset.togglePublic);
+
+  await runAction(async () => {
+    await api(`/api/history/${itemId}/toggle-public`, { method: "POST" });
+    await Promise.all([refreshHistory(), refreshMyGallery(), refreshPublicGallery()]);
+    showToast("已更新", "success");
+  });
+}
+
 // 删除当前选中的历史记录
 async function deleteSelectedItem() {
   const item = selectedHistoryItem();
 
   if (!item || item.id < 0) return;
 
+  await deleteHistoryItem(item);
+}
+
+// 删除指定历史记录
+async function deleteHistoryItem(item) {
+  if (!item || item.id < 0) return;
+
   await runAction(async () => {
     await api(`/api/gallery/${item.id}`, { method: "DELETE" });
-    state.selectedHistoryId = null;
+    state.historySelectedId = null;
     await refreshHistory();
     showToast("已删除", "success");
   });
+}
+
+// 下载指定历史记录图片
+function downloadHistoryItem(item) {
+  const image = item?.images?.[0];
+
+  if (!image) return showToast("暂无可下载图片", "error");
+
+  const link = document.createElement("a");
+  link.href = image;
+  link.download = `create-img-${Date.now()}.png`;
+  link.click();
 }
 
 // 提交充值意向
@@ -1240,7 +1446,7 @@ function selectedMyGalleryItem() {
 
 // 获取当前选中的个人历史项
 function selectedHistoryItem() {
-  return findSelectedItem(state.history, state.selectedHistoryId);
+  return findSelectedItem(state.history, state.historySelectedId);
 }
 
 // 根据当前视图返回下载所需的选中图片项
@@ -1348,7 +1554,9 @@ function icon(name) {
     "arrow-right": "M5 12h14M13 6l6 6-6 6",
     "chevron-left": "M15 6l-6 6 6 6",
     "chevron-right": "M9 6l6 6-6 6",
-    heart: "M12 20s-7-4.5-7-10a4 4 0 017-2 4 4 0 017 2c0 5.5-7 10-7 10z"
+    heart: "M12 20s-7-4.5-7-10a4 4 0 017-2 4 4 0 017 2c0 5.5-7 10-7 10z",
+    download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
+    trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
   };
 
   return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] ?? paths.sparkles}"/></svg>`;

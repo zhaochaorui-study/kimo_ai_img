@@ -150,6 +150,8 @@ async function routeAuthedApi(request, response, services, url, session) {
   if (request.method === "POST" && url.pathname === "/api/wallet/recharge") return routes.recharge();
   if (request.method === "GET" && url.pathname === "/api/gallery") return routes.gallery();
   if (request.method === "DELETE" && url.pathname.startsWith("/api/gallery/")) return routes.deleteGalleryItem(url);
+  // 调用历史公开状态切换接口，让历史图片可以加入或移出公共画廊
+  if (request.method === "POST" && url.pathname.startsWith("/api/history/") && url.pathname.endsWith("/toggle-public")) return routes.togglePublic(url);
   if (request.method === "GET" && url.pathname === "/api/my-gallery") return routes.myGallery();
   if (request.method === "DELETE" && url.pathname.startsWith("/api/my-gallery/")) return routes.removeMyGalleryItem(url);
   if (request.method === "POST" && url.pathname === "/api/images/generations") return routes.textToImage();
@@ -227,6 +229,14 @@ class AuthedRouteHandlers {
     const result = await this.services.imageService.createImageEdits(this.session.userId, payload);
 
     sendOk(this.response, result);
+  }
+
+  // 切换历史记录的公开状态（加入/移出画廊）
+  async togglePublic(url) {
+    const generationId = Number(url.pathname.split("/")[3]);
+
+    await this.services.imageService.togglePublic(this.session.userId, generationId);
+    sendOk(this.response);
   }
 }
 

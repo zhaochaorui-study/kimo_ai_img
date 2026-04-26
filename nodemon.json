@@ -1,0 +1,7 @@
+{
+  "watch": ["src", ".env"],
+  "ext": "mjs,js,json",
+  "ignore": ["src/**/*.test.mjs", "test/**"],
+  "exec": "node src/server.mjs",
+  "delay": 500
+}

@@ -6,9 +6,13 @@
   "scripts": {
     "test": "node --test",
     "serve": "python3 -m http.server 4173",
-    "start": "node src/server.mjs"
+    "start": "node src/server.mjs",
+    "dev": "nodemon"
   },
   "dependencies": {
     "mysql2": "^3.22.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
