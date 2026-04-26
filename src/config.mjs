@@ -24,7 +24,8 @@ export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
     imageStorage: createImageStorageConfig({
       platform: process.platform,
       projectRoot: join(PROJECT_ROOT)
-    })
+    }),
+    email: createEmailConfig(runtimeEnv)
   });
 }
 
@@ -61,6 +62,18 @@ function createDatabaseConfig(runtimeEnv) {
 function createServerConfig(runtimeEnv) {
   return Object.freeze({
     imageUploadMaxBytes: readConfigNumber(runtimeEnv, "SERVER_IMAGE_UPLOAD_MAX_BYTES", DEFAULT_SERVER_IMAGE_UPLOAD_MAX_BYTES)
+  });
+}
+
+// 创建邮件服务配置，支持任意 SMTP 服务商
+function createEmailConfig(runtimeEnv) {
+  return Object.freeze({
+    host: readConfigValue(runtimeEnv, "SMTP_HOST", ""),
+    port: readConfigNumber(runtimeEnv, "SMTP_PORT", 587),
+    secure: readConfigValue(runtimeEnv, "SMTP_SECURE", "false") === "true",
+    user: readConfigValue(runtimeEnv, "SMTP_USER", ""),
+    pass: readConfigValue(runtimeEnv, "SMTP_PASS", ""),
+    from: readConfigValue(runtimeEnv, "SMTP_FROM", "")
   });
 }
 

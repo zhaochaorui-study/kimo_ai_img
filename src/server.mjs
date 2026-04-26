@@ -10,6 +10,8 @@ import { createRedisClient } from "./database/redisClient.mjs";
 import { GenerationRepository } from "./repositories/generationRepository.mjs";
 import { UserRepository } from "./repositories/userRepository.mjs";
 import { Credentials, AuthService } from "./services/authService.mjs";
+import { VerificationService } from "./services/verificationService.mjs";
+import { EmailService } from "./services/emailService.mjs";
 import { ImageService } from "./services/imageService.mjs";
 import { RemoteImageClient } from "./services/remoteImageClient.mjs";
 import { ImageStorageService } from "./services/imageStorageService.mjs";
@@ -51,13 +53,20 @@ async function createServices(pool, redisClient) {
   // 调用历史迁移，把旧版 base64 结果图转换为服务器相对路径
   await generationRepository.migrateInlineImagesToPaths(imageStorageService);
 
+  const emailService = APP_CONFIG.email.host
+    ? new EmailService(APP_CONFIG.email)
+    : null;
+  const verificationService = new VerificationService({ redisClient, emailService });
+
   return {
     authService: new AuthService({
       pool,
       userRepository,
       sessionStore,
+      verificationService,
       signupCreditCents: APP_CONFIG.signupCreditCents
     }),
+    verificationService,
     walletService,
     imageService: new ImageService({
       walletService,
@@ -100,6 +109,11 @@ async function handleApiRequest(request, response, services, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/send-code") {
+    await handleSendCode(request, response, services);
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/public-gallery") {
     await handlePublicGallery(request, response, services);
     return;
@@ -126,6 +140,14 @@ async function handleRegister(request, response, services) {
 async function handleLogin(request, response, services) {
   const payload = await readJsonBody(request);
   const result = await services.authService.login(new Credentials(payload));
+
+  sendOk(response, result);
+}
+
+// 处理发送验证码接口
+async function handleSendCode(request, response, services) {
+  const payload = await readJsonBody(request);
+  const result = await services.verificationService.sendCode(payload.email);
 
   sendOk(response, result);
 }

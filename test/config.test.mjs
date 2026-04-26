@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -108,6 +108,18 @@ test("createAppConfig uses local Redis as default session storage", () => {
     db: 0
   });
   assert.equal(appConfig.sessionTtlSeconds, 7 * 24 * 60 * 60);
+});
+
+test("database bootstrap creates users with email support", async () => {
+  const source = await readFile(new URL("../src/database/mysqlClient.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /email VARCHAR\(128\) NULL UNIQUE/);
+  assert.match(source, /username VARCHAR\(64\) NOT NULL UNIQUE/);
+  assert.match(source, /await ensureUsersEmailColumnExists\(pool\);/);
+  assert.match(source, /async function ensureUsersEmailColumnExists\(pool\)/);
+  assert.match(source, /ALTER TABLE users ADD COLUMN email VARCHAR\(128\) NULL AFTER username/);
+  assert.match(source, /UPDATE users SET email = username WHERE email IS NULL/);
+  assert.match(source, /ALTER TABLE users ADD UNIQUE INDEX idx_users_email \(email\)/);
 });
 
 // 创建临时 .env 文件，隔离配置加载测试

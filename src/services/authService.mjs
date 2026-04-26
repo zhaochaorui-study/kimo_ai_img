@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from "../security/passwords.mjs";
 import { WalletTransactionType } from "../domain/billing.mjs";
 
 const MIN_PASSWORD_LENGTH = 6;
-const USERNAME_PATTERN = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,32}$/;
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 // 认证服务，负责注册、登录和当前用户查询
 export class AuthService {
@@ -12,12 +12,17 @@ export class AuthService {
     this.pool = input.pool;
     this.userRepository = input.userRepository;
     this.sessionStore = input.sessionStore;
+    this.verificationService = input.verificationService;
     this.signupCreditCents = input.signupCreditCents;
   }
 
-  // 注册账号，事务内创建用户并写入注册送额度流水
+  // 注册账号，校验验证码后事务内创建用户并写入注册送额度流水
   async register(credentials) {
     this.#validateCredentials(credentials);
+
+    // 校验邮箱验证码
+    await this.verificationService.verifyCode(credentials.email, credentials.verificationCode);
+
     const passwordHash = hashPassword(credentials.password);
 
     // 调用事务创建用户，保证账号和赠送额度流水一致
@@ -30,7 +35,7 @@ export class AuthService {
 
   // 登录账号，验证密码后签发本地会话令牌
   async login(credentials) {
-    const user = await this.userRepository.findByUsername(credentials.username);
+    const user = await this.userRepository.findByUsername(credentials.loginIdentifier);
 
     if (!user || !verifyPassword(credentials.password, user.password_hash, user.password_salt)) {
       throw new Error("用户名或密码错误");
@@ -52,8 +57,8 @@ export class AuthService {
 
   // 校验注册和登录凭据
   #validateCredentials(credentials) {
-    if (!USERNAME_PATTERN.test(credentials.username)) {
-      throw new Error("用户名需为 2-32 位中文、字母、数字或下划线");
+    if (!EMAIL_PATTERN.test(credentials.email)) {
+      throw new Error("请输入有效的邮箱地址");
     }
 
     if (String(credentials.password ?? "").length < MIN_PASSWORD_LENGTH) {
@@ -64,7 +69,8 @@ export class AuthService {
   // 创建用户并插入注册送额度流水
   async #createUserWithSignupGift(connection, credentials, passwordHash) {
     const userId = await this.userRepository.createUser(connection, {
-      username: credentials.username,
+      username: credentials.email,
+      email: credentials.email,
       passwordHash: passwordHash.hash,
       passwordSalt: passwordHash.salt,
       balanceCents: this.signupCreditCents
@@ -72,7 +78,7 @@ export class AuthService {
 
     await this.#recordSignupGift(connection, userId);
 
-    return { id: userId, username: credentials.username, balance_cents: this.signupCreditCents };
+    return { id: userId, username: credentials.email, email: credentials.email, balance_cents: this.signupCreditCents };
   }
 
   // 记录注册送额度流水
@@ -101,6 +107,7 @@ export class AuthService {
     return {
       id: Number(user.id),
       username: user.username,
+      email: user.email,
       balanceCents: Number(user.balance_cents)
     };
   }
@@ -110,6 +117,9 @@ export class AuthService {
 export class Credentials {
   constructor(input) {
     this.username = String(input.username ?? "").trim();
+    this.email = String(input.email ?? "").trim().toLowerCase();
+    this.loginIdentifier = this.email || this.username;
     this.password = String(input.password ?? "");
+    this.verificationCode = String(input.verificationCode ?? "");
   }
 }

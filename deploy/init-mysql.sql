@@ -23,6 +23,7 @@ USE `create_img_web`;
 CREATE TABLE IF NOT EXISTS `users` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `username` VARCHAR(64) NOT NULL UNIQUE,
+  `email` VARCHAR(128) NULL UNIQUE,
   `password_hash` VARCHAR(128) NOT NULL,
   `password_salt` VARCHAR(64) NOT NULL,
   `balance_cents` INT NOT NULL DEFAULT 0,

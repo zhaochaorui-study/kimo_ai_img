@@ -10,7 +10,8 @@
     "dev": "nodemon"
   },
   "dependencies": {
-    "mysql2": "^3.22.2"
+    "mysql2": "^3.22.2",
+    "nodemailer": "^8.0.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -23,8 +23,50 @@ async function ensureDatabaseExists(config) {
 // 创建业务表结构，保证新机器启动即可运行
 async function ensureTablesExist(pool) {
   await pool.query(createUsersTableSql());
+  await ensureUsersEmailColumnExists(pool);
   await pool.query(createTransactionsTableSql());
   await pool.query(createGenerationsTableSql());
+}
+
+// 确保旧 users 表也具备邮箱字段和唯一索引，避免邮箱注册写入时报 Unknown column
+async function ensureUsersEmailColumnExists(pool) {
+  if (await hasTableColumn(pool, "users", "email")) {
+    await ensureUsersEmailUniqueIndex(pool);
+    return;
+  }
+
+  await pool.query("ALTER TABLE users ADD COLUMN email VARCHAR(128) NULL AFTER username");
+  await pool.query("UPDATE users SET email = username WHERE email IS NULL");
+  await ensureUsersEmailUniqueIndex(pool);
+}
+
+// 确保 users.email 有唯一索引，兼容新旧两种建表路径
+async function ensureUsersEmailUniqueIndex(pool) {
+  if (await hasUniqueColumnIndex(pool, "users", "email")) return;
+
+  await pool.query("ALTER TABLE users ADD UNIQUE INDEX idx_users_email (email)");
+}
+
+// 查询表字段是否存在
+async function hasTableColumn(pool, tableName, columnName) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [tableName, columnName]
+  );
+
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
+// 查询字段是否已经存在唯一索引
+async function hasUniqueColumnIndex(pool, tableName, columnName) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? AND NON_UNIQUE = 0`,
+    [tableName, columnName]
+  );
+
+  return Number(rows[0]?.count ?? 0) > 0;
 }
 
 // 创建 MySQL 服务级连接配置
@@ -55,6 +97,7 @@ function createUsersTableSql() {
     CREATE TABLE IF NOT EXISTS users (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(64) NOT NULL UNIQUE,
+      email VARCHAR(128) NULL UNIQUE,
       password_hash VARCHAR(128) NOT NULL,
       password_salt VARCHAR(64) NOT NULL,
       balance_cents INT NOT NULL DEFAULT 0,

@@ -27,8 +27,8 @@ export class UserRepository {
   // 在事务中创建用户账号
   async createUser(connection, account) {
     const [result] = await connection.execute(
-      "INSERT INTO users (username, password_hash, password_salt, balance_cents) VALUES (?, ?, ?, ?)",
-      [account.username, account.passwordHash, account.passwordSalt, account.balanceCents]
+      "INSERT INTO users (username, email, password_hash, password_salt, balance_cents) VALUES (?, ?, ?, ?, ?)",
+      [account.username, account.email, account.passwordHash, account.passwordSalt, account.balanceCents]
     );
 
     return Number(result.insertId);

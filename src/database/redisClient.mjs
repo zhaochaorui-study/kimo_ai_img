@@ -53,6 +53,12 @@ export class RedisClient {
     await this.#sendCommand(["DEL", key]);
   }
 
+  // 查询键剩余生存时间（秒）
+  async ttl(key) {
+    const result = await this.#sendCommand(["TTL", key]);
+    return Number(result);
+  }
+
   // 关闭 Redis 连接
   async close() {
     if (!this.socket) return;

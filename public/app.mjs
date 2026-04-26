@@ -34,13 +34,26 @@ const state = {
   historyPage: 1,
   historyPageSize: 8,
   historySelectedId: null,
-  lightboxImage: null
+  lightboxImage: null,
+  authMode: "login",
+  email: "",
+  verificationCode: "",
+  codeCountdown: 0,
+  codeSending: false,
+  loadingScopes: new Set(),
+  revealScopes: new Set()
 };
 
 const app = document.querySelector("#app");
 const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
 const REFERENCE_IMAGE_MAX_BYTES = 48 * 1024 * 1024;
 const DISABLED_SIDE_TARGETS = new Set(["settings"]);
+const AUTH_VIEW_SESSION_KEY = "create_img_auth_view";
+const LOADING_SCOPE_WALLET = "wallet";
+const LOADING_SCOPE_GALLERY = "gallery";
+const LOADING_SCOPE_MY_GALLERY = "my-gallery";
+const LOADING_SCOPE_HISTORY = "history";
+const loadingJobs = new Map();
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -48,12 +61,29 @@ async function boot() {
     await loadSession();
   }
 
-  if (!state.user) {
+  if (!state.user && shouldRestoreAuthView()) {
+    state.view = "auth";
+  } else if (!state.user) {
     state.view = "gallery";
   }
 
   render();
   await refreshData();
+}
+
+// 判断刷新后是否需要停留在登录注册页
+function shouldRestoreAuthView() {
+  return sessionStorage.getItem(AUTH_VIEW_SESSION_KEY) === "auth";
+}
+
+// 持久化当前视图状态，让登录页刷新后不会被默认画廊覆盖
+function persistCurrentView(view) {
+  if (view === "auth") {
+    sessionStorage.setItem(AUTH_VIEW_SESSION_KEY, view);
+    return;
+  }
+
+  sessionStorage.removeItem(AUTH_VIEW_SESSION_KEY);
 }
 
 // 调用后端 API，统一注入登录令牌和错误处理
@@ -97,19 +127,23 @@ async function refreshData() {
 
 // 刷新钱包余额
 async function refreshWallet() {
-  const payload = await api("/api/wallet");
+  await loadDataWithFade(LOADING_SCOPE_WALLET, async () => {
+    const payload = await api("/api/wallet");
 
-  state.user.balanceCents = payload.wallet.balanceCents;
-  state.transactions = payload.wallet.transactions;
+    state.user.balanceCents = payload.wallet.balanceCents;
+    state.transactions = payload.wallet.transactions;
+  });
 }
 
 // 刷新个人图片历史
 async function refreshHistory() {
-  const payload = await api("/api/gallery");
+  await loadDataWithFade(LOADING_SCOPE_HISTORY, async () => {
+    const payload = await api("/api/gallery");
 
-  state.history = payload.items;
-  state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
-  syncGeneratingStateFromHistory();
+    state.history = payload.items;
+    state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
+    syncGeneratingStateFromHistory();
+  });
 }
 
 // 根据历史记录中的 pending/processing 状态同步生成按钮状态
@@ -125,28 +159,93 @@ function syncGeneratingStateFromHistory() {
 
 // 刷新当前用户已加入公共画廊的图片
 async function refreshMyGallery() {
-  const payload = await api("/api/my-gallery");
+  await loadDataWithFade(LOADING_SCOPE_MY_GALLERY, async () => {
+    const payload = await api("/api/my-gallery");
 
-  state.myGallery = payload.items;
-  state.selectedMyGalleryId = selectExistingOrFirst(state.selectedMyGalleryId, state.myGallery);
+    state.myGallery = payload.items;
+    state.selectedMyGalleryId = selectExistingOrFirst(state.selectedMyGalleryId, state.myGallery);
+  });
 }
 
 // 刷新公共画廊
 async function refreshPublicGallery() {
+  await loadDataWithFade(LOADING_SCOPE_GALLERY, async () => {
+    try {
+      const payload = await api("/api/public-gallery");
+      state.gallery = payload.items;
+      state.selectedId = selectExistingOrFirst(state.selectedId, state.gallery);
+    } catch {
+      state.gallery = [];
+      state.selectedId = null;
+    }
+  });
+}
+
+// 包装数据加载动作，统一展示渐入加载反馈
+async function loadDataWithFade(scope, work) {
+  if (loadingJobs.has(scope)) return loadingJobs.get(scope);
+
+  const job = runScopedDataLoad(scope, work);
+  loadingJobs.set(scope, job);
+
+  return job;
+}
+
+// 执行指定数据域的加载任务，并在完成后触发单次渐进 reveal
+async function runScopedDataLoad(scope, work) {
+  // 调用加载状态切换函数，让当前视图先展示骨架屏
+  setLoadingScope(scope, true);
+
   try {
-    const payload = await api("/api/public-gallery");
-    state.gallery = payload.items;
-    state.selectedId = selectExistingOrFirst(state.selectedId, state.gallery);
-  } catch {
-    state.gallery = [];
-    state.selectedId = null;
+    await work();
+    markRevealScope(scope);
+  } finally {
+    loadingJobs.delete(scope);
+    // 调用加载状态切换函数，让新数据渲染后执行淡入动画
+    setLoadingScope(scope, false);
   }
+}
+
+// 标记指定数据域需要在下一次渲染时渐进展示
+function markRevealScope(scope) {
+  state.revealScopes.add(scope);
+}
+
+// 判断指定数据域是否需要执行渐进展示
+function shouldRevealScope(scope) {
+  return state.revealScopes.has(scope);
+}
+
+// 清理已经渲染过的渐进展示标记，避免普通点击重复播放
+function clearRenderedRevealScopes() {
+  if (!state.revealScopes.size) return;
+
+  state.revealScopes.clear();
+}
+
+// 切换指定数据域的加载状态
+function setLoadingScope(scope, isLoading) {
+  const alreadyLoading = state.loadingScopes.has(scope);
+
+  if (alreadyLoading === isLoading) return;
+  if (isLoading) {
+    state.loadingScopes.add(scope);
+  } else {
+    state.loadingScopes.delete(scope);
+  }
+  render();
+}
+
+// 判断指定数据域是否正在加载
+function isLoadingScope(scope) {
+  return state.loadingScopes.has(scope);
 }
 
 // 渲染整页入口
 function render() {
   app.innerHTML = state.view === "auth" ? renderAuth() : renderStudio();
   bindEvents();
+  clearRenderedRevealScopes();
 }
 
 // 渲染图片放大弹窗（Lightbox）
@@ -224,23 +323,24 @@ function renderAuth() {
         </div>
         <div class="auth-right">
           <div class="auth-tabs-row">
-            <button class="auth-tab is-active" data-auth-mode="login">登录</button>
-            <button class="auth-tab" data-auth-mode="register">注册</button>
+            <button class="auth-tab ${state.authMode === "login" ? "is-active" : ""}" data-auth-mode="login">登录</button>
+            <button class="auth-tab ${state.authMode === "register" ? "is-active" : ""}" data-auth-mode="register">注册</button>
           </div>
           <div class="auth-form-header">
-            <h2>欢迎回来 👋</h2>
-            <p>登录你的 Kimo 账户，继续你的 AI 创造之旅</p>
+            <h2>${state.authMode === "register" ? "创建账户" : "欢迎回来 👋"}</h2>
+            <p>${state.authMode === "register" ? "注册 Kimo 账户，开启你的 AI 创造之旅" : "登录你的 Kimo 账户，继续你的 AI 创造之旅"}</p>
           </div>
-          <form id="authForm" data-auth-form-mode="login">
+          <form id="authForm" data-auth-form-mode="${state.authMode}">
             <div class="auth-input-group">
-              <label>邮箱 / 用户名</label>
+              <label>邮箱</label>
               <div class="auth-input-wrap">
                 <span class="auth-input-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                 </span>
-                <input name="username" type="text" autocomplete="username" placeholder="请输入邮箱或用户名">
+                <input name="email" type="email" autocomplete="email" placeholder="请输入邮箱" value="${escapeHtml(state.email)}">
               </div>
             </div>
+            ${state.authMode === "register" ? renderVerificationCodeField() : ""}
             <div class="auth-input-group">
               <label>密码</label>
               <div class="auth-input-wrap">
@@ -260,9 +360,9 @@ function renderAuth() {
               </label>
               <a href="#" class="auth-forgot">忘记密码?</a>
             </div>
-            <button class="auth-login-btn" type="submit">登录</button>
+            <button class="auth-login-btn" type="submit">${state.authMode === "register" ? "注册" : "登录"}</button>
           </form>
-          <div class="auth-register-link">还没有账户？<button class="auth-link" data-auth-mode="register">立即注册</button></div>
+          <div class="auth-register-link">${state.authMode === "register" ? "已有账户？" : "还没有账户？"}<button class="auth-link" data-auth-mode="${state.authMode === "register" ? "login" : "register"}">${state.authMode === "register" ? "立即登录" : "立即注册"}</button></div>
         </div>
       </div>
       ${renderToast()}
@@ -289,6 +389,8 @@ function renderStudio() {
 
 // 渲染顶部导航栏
 function renderTopbar() {
+  const balanceClass = isLoadingScope(LOADING_SCOPE_WALLET) ? "is-syncing" : "";
+
   return `
     <header class="topbar">
       <div class="brand"><span class="brand-icon">🐱</span><span>创想图像工作室</span></div>
@@ -297,7 +399,7 @@ function renderTopbar() {
       </nav>
       <div class="top-actions">
         <button class="icon-btn" title="通知">${icon("bell")}</button>
-        ${state.user ? `<span class="mobile-balance">${state.user.balanceCents ?? 0} 积分</span>` : ""}
+        ${state.user ? `<span class="mobile-balance ${balanceClass}">${state.user.balanceCents ?? 0} 积分</span>` : ""}
         ${state.user ? renderUserMenu() : `<button class="primary-btn" data-action="open-auth" style="width:auto;padding:0 18px;height:36px;font-size:13px">登录</button>`}
       </div>
     </header>
@@ -337,6 +439,7 @@ function renderSidebar() {
   ] : [
     ["gallery", "grid", "画廊"]
   ];
+  const walletClass = isLoadingScope(LOADING_SCOPE_WALLET) ? "is-syncing" : "";
 
   return `
     <aside class="sidebar">
@@ -344,7 +447,7 @@ function renderSidebar() {
         ${buttons.map((item, index) => renderSideButton(item, index)).join("")}
       </nav>
       ${state.user ? `
-        <section class="wallet-card">
+        <section class="wallet-card ${walletClass}">
           <small>积分余额</small>
           <div class="wallet-amount">${state.user.balanceCents ?? 0}</div>
           <button class="secondary-btn" data-action="open-recharge">升级套餐</button>
@@ -463,12 +566,26 @@ function currentModuleLabel() {
 
 // 渲染参考图上传区域
 function renderUploadField() {
+  const uploadLimitMb = REFERENCE_IMAGE_MAX_BYTES / 1024 / 1024;
+  const uploadTitle = state.referenceImageName ? "已选择参考图" : "点击上传参考图";
+  const uploadHint = state.referenceImageName
+    ? escapeHtml(state.referenceImageName)
+    : `支持 JPG / PNG / WebP，最大 ${uploadLimitMb}MB`;
+  const uploadAction = state.referenceImageName ? "重新选择" : "选择文件";
+
   return `
     <div class="field">
       <span class="upload-label">参考图像</span>
-      <div class="upload-box">
-        ${state.referenceImage ? `<div data-lightbox="${state.referenceImage}">${renderImageTag("reference-preview", state.referenceImage, "参考图")}</div>` : "<div class=\"upload-placeholder\">上传 JPG / PNG，最大 10MB</div>"}
-        <input id="referenceInput" type="file" accept="image/png,image/jpeg,image/webp">
+      <div class="upload-box ${state.referenceImageName ? "is-ready" : ""}">
+        <div class="upload-placeholder">
+          <span class="upload-icon">${icon("image")}</span>
+          <span class="upload-copy">
+            <span class="upload-title">${uploadTitle}</span>
+            <span class="upload-hint">${uploadHint}</span>
+          </span>
+          <span class="upload-action">${uploadAction}</span>
+        </div>
+        <input id="referenceInput" type="file" accept="image/png,image/jpeg,image/webp" aria-label="上传参考图像">
       </div>
     </div>
   `;
@@ -574,6 +691,12 @@ function renderSettingsPanel() {
 function renderCompareStage() {
   const resolution = getResolution(state.ratio);
   const primaryLightboxImage = resolvePrimaryPreviewImage();
+  const primaryPreview = renderPrimaryImage();
+  const referenceLightboxImage = state.referenceImage ?? "";
+  const referencePreview = state.referenceImage
+    ? renderImageTag("generated-image", state.referenceImage, "参考图")
+    : renderEmptyPreview();
+
   return `
     <section class="stage">
       <div class="preview-wrap" style="min-height:auto;padding:20px">
@@ -581,12 +704,12 @@ function renderCompareStage() {
         <div class="compare-grid">
           <div>
             <h3>原图（参考）</h3>
-            <div class="image-preview compare-card" data-lightbox="${state.referenceImage ?? ""}">${state.referenceImage ? renderImageTag("generated-image", state.referenceImage, "参考图") : "<div class=\"mock-still-life\"></div>"}</div>
+            <div class="image-preview compare-card" data-lightbox="${referenceLightboxImage}">${referencePreview}</div>
           </div>
           <div class="arrow-circle">${icon("arrow-right")}</div>
           <div>
             <h3>生成结果</h3>
-            <div class="image-preview compare-card" data-lightbox="${primaryLightboxImage}">${renderPrimaryImage()}<span class="preview-badge">${resolution}</span></div>
+            <div class="image-preview compare-card" data-lightbox="${primaryLightboxImage}">${primaryPreview}<span class="preview-badge">${resolution}</span></div>
           </div>
         </div>
       </div>
@@ -715,6 +838,8 @@ function renderProgress() {
 
 // 渲染画廊页面
 function renderGallery() {
+  const isLoading = isLoadingScope(LOADING_SCOPE_GALLERY);
+
   return `
     <section class="gallery-layout">
       <div>
@@ -728,15 +853,17 @@ function renderGallery() {
           <button class="chip">建筑</button>
           <button class="chip">3D渲染</button>
         </div>
-        <div class="gallery-grid">${galleryItems().map(renderGalleryItem).join("")}</div>
+        ${isLoading ? renderGalleryLoadingGrid() : renderGalleryGrid(galleryItems(), renderGalleryItem, LOADING_SCOPE_GALLERY)}
       </div>
-      ${renderDetailPanel()}
+      ${isLoading ? renderDetailLoadingPanel("正在加载画廊详情") : renderDetailPanel()}
     </section>
   `;
 }
 
 // 渲染我的画廊页面，只展示当前用户已公开的图片
 function renderMyGallery() {
+  const isLoading = isLoadingScope(LOADING_SCOPE_MY_GALLERY);
+
   return `
     <section class="gallery-layout">
       <div>
@@ -744,9 +871,9 @@ function renderMyGallery() {
           <h2 class="gallery-title">我的画廊</h2>
           <button class="chip is-active">已加入画廊</button>
         </div>
-        ${renderMyGalleryGrid()}
+        ${isLoading ? renderGalleryLoadingGrid() : renderMyGalleryGrid()}
       </div>
-      ${renderMyGalleryDetailPanel()}
+      ${isLoading ? renderDetailLoadingPanel("正在加载我的画廊") : renderMyGalleryDetailPanel()}
     </section>
   `;
 }
@@ -759,30 +886,56 @@ function renderMyGalleryGrid() {
     return "<p class=\"empty-state\">暂无加入画廊的图片。</p>";
   }
 
-  return `<div class="gallery-grid">${items.map(renderMyGalleryItem).join("")}</div>`;
+  return renderGalleryGrid(items, renderMyGalleryItem, LOADING_SCOPE_MY_GALLERY);
+}
+
+// 渲染图片网格，数据加载完成后仅播放一次逐项入场动画
+function renderGalleryGrid(items, renderer, scope) {
+  const revealClass = shouldRevealScope(scope) ? " is-revealing" : "";
+
+  return `<div class="gallery-grid${revealClass}">${items.map(renderer).join("")}</div>`;
+}
+
+// 渲染画廊数据加载中的骨架网格
+function renderGalleryLoadingGrid() {
+  const placeholders = Array.from({ length: 8 }, (_, index) => renderGalleryLoadingCard(index));
+
+  return `<div class="gallery-grid loading-grid" aria-busy="true">${placeholders.join("")}</div>`;
+}
+
+// 渲染单个加载中的图片卡片
+function renderGalleryLoadingCard(index) {
+  return `<article class="gallery-item loading-card" style="--loading-index:${index}"><div class="loading-image"></div></article>`;
 }
 
 // 渲染画廊单个项目
-function renderGalleryItem(item) {
+function renderGalleryItem(item, index = 0) {
   const image = item.images?.[0] ?? "";
+  const isActive = Number(state.selectedId) === Number(item.id);
 
   return `
-    <article class="gallery-item">
+    <article class="gallery-item gallery-entry ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="gallery" data-preview-id="${item.id}">
       <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "生成图") : "<div class=\"mock-still-life\"></div>"}</button>
     </article>
   `;
 }
 
 // 渲染我的画廊单个项目，提供移出画廊入口
-function renderMyGalleryItem(item) {
+function renderMyGalleryItem(item, index = 0) {
   const image = item.images?.[0] ?? "";
+  const isActive = Number(state.selectedMyGalleryId) === Number(item.id);
 
   return `
-    <article class="gallery-item my-gallery-item">
+    <article class="gallery-item gallery-entry my-gallery-item ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="my-gallery" data-preview-id="${item.id}">
       <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "我的画廊生成图") : "<div class=\"mock-still-life\"></div>"}</button>
       <button class="gallery-card-action gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </article>
   `;
+}
+
+// 创建图片卡片渐进动画所需的 CSS 变量
+function createGalleryEntryStyle(index) {
+  return `--gallery-index:${Math.max(0, Number(index) || 0)}`;
 }
 
 // 渲染右侧详情面板
@@ -792,7 +945,7 @@ function renderDetailPanel() {
   if (!item) return "<aside class=\"detail-panel\"><p class=\"empty-state\">暂无生成记录</p></aside>";
 
   return `
-    <aside class="detail-panel">
+    <aside class="detail-panel content-fade-in">
       <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
@@ -824,7 +977,7 @@ function renderMyGalleryDetailPanel() {
   if (!item) return "<aside class=\"detail-panel\"><p class=\"empty-state\">暂无加入画廊的图片</p></aside>";
 
   return `
-    <aside class="detail-panel">
+    <aside class="detail-panel content-fade-in">
       <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "我的画廊选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
@@ -842,9 +995,11 @@ function renderMyGalleryDetailPanel() {
 
 // 渲染历史页面（瀑布流网格 + 右侧详情面板 + 分页）
 function renderDetail() {
+  const isLoading = isLoadingScope(LOADING_SCOPE_HISTORY);
   const items = state.history.filter((item) => item.status === "succeeded" && item.images?.length);
   const total = items.length;
 
+  if (isLoading) return renderHistoryLoadingLayout();
   if (!total) return "<p class=\"empty-state\">暂无历史记录，先去生成一张。</p>";
 
   const totalPages = Math.max(1, Math.ceil(total / state.historyPageSize));
@@ -859,7 +1014,7 @@ function renderDetail() {
           <h2 class="gallery-title">生成历史</h2>
           <span class="history-count">共 ${total} 条</span>
         </div>
-        <div class="gallery-grid">${pageItems.map(renderHistoryGridItem).join("")}</div>
+        ${renderGalleryGrid(pageItems, renderHistoryGridItem, LOADING_SCOPE_HISTORY)}
         ${renderHistoryPagination(page, totalPages, total)}
       </div>
       ${renderHistoryDetailPanel()}
@@ -867,14 +1022,30 @@ function renderDetail() {
   `;
 }
 
+// 渲染历史数据加载中的整体布局
+function renderHistoryLoadingLayout() {
+  return `
+    <section class="gallery-layout">
+      <div>
+        <div class="gallery-toolbar">
+          <h2 class="gallery-title">生成历史</h2>
+          <span class="history-count">加载中</span>
+        </div>
+        ${renderGalleryLoadingGrid()}
+      </div>
+      ${renderDetailLoadingPanel("正在加载历史详情")}
+    </section>
+  `;
+}
+
 // 渲染历史瀑布流网格项
-function renderHistoryGridItem(item) {
+function renderHistoryGridItem(item, index = 0) {
   const image = item.images?.[0] ?? "";
   const isActive = state.historySelectedId === item.id;
   const isPublic = item.isPublic;
 
   return `
-    <article class="gallery-item ${isActive ? "is-active" : ""}">
+    <article class="gallery-item gallery-entry ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="history" data-preview-id="${item.id}">
       <button data-history-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "历史图片") : "<div class=\"mock-still-life\"></div>"}</button>
       <button class="gallery-card-action gallery-toggle-btn ${isPublic ? "is-active" : ""}" data-action="toggle-public" data-toggle-public="${item.id}">${isPublic ? "移出画廊" : "加入公共画廊"}</button>
     </article>
@@ -891,7 +1062,7 @@ function renderHistoryDetailPanel() {
   const variants = images.length > 1 ? images.slice(1) : [];
 
   return `
-    <aside class="detail-panel">
+    <aside class="detail-panel content-fade-in">
       <div class="thumb" data-lightbox="${images[0] ?? ""}">${images[0] ? renderImageTag("generated-image", images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
@@ -911,6 +1082,22 @@ function renderHistoryDetailPanel() {
           </div>
         </div>
       ` : ""}
+    </aside>
+  `;
+}
+
+// 渲染右侧详情数据加载中的骨架面板
+function renderDetailLoadingPanel(label) {
+  return `
+    <aside class="detail-panel detail-loading-panel" aria-busy="true" aria-label="${label}">
+      <div class="loading-detail-thumb"></div>
+      <div class="loading-line is-wide"></div>
+      <div class="loading-line"></div>
+      <div class="loading-meta-list">
+        ${Array.from({ length: 8 }, () => "<span></span><strong></strong>").join("")}
+      </div>
+      <div class="loading-button"></div>
+      <div class="loading-button"></div>
     </aside>
   `;
 }
@@ -957,6 +1144,7 @@ function renderChips(key, values) {
 
 let clickDelegated = false;
 let keydownDelegated = false;
+let hoverDelegated = false;
 
 // 绑定页面事件
 function bindEvents() {
@@ -972,6 +1160,11 @@ function bindEvents() {
       }
     });
     keydownDelegated = true;
+  }
+  if (!hoverDelegated) {
+    // 调用悬停预览处理函数，让右侧详情跟随当前图片卡片切换
+    app.addEventListener("mouseover", handleGalleryPreviewHover);
+    hoverDelegated = true;
   }
 
   app.querySelectorAll("[data-select-key]").forEach((node) => node.addEventListener("change", () => { updateState(node.dataset.selectKey, node.value); render(); }));
@@ -1000,7 +1193,10 @@ function handleAppClick(event) {
   if (chip) { setChip(chip); return; }
 
   const lightboxTrigger = event.target.closest("[data-lightbox]");
-  if (lightboxTrigger && openLightboxFromTrigger(lightboxTrigger)) return;
+  if (lightboxTrigger) {
+    selectItemFromLightboxTrigger(lightboxTrigger);
+    if (openLightboxFromTrigger(lightboxTrigger)) return;
+  }
 
   const select = event.target.closest("[data-select]");
   if (select) { selectGallery(Number(select.dataset.select)); return; }
@@ -1032,6 +1228,7 @@ function handleAppClick(event) {
   else if (name === "open-auth") { state.returnTo = ""; setView("auth"); }
   else if (name === "close-modal") showModal("");
   else if (name === "submit-recharge") submitRecharge();
+  else if (name === "send-code") sendVerificationCode();
   else if (name === "toggle-user-menu") { event.stopPropagation(); state.userMenuOpen = !state.userMenuOpen; render(); }
   else if (name === "user-profile") { state.userMenuOpen = false; showToast("个人中心开发中", "success"); }
   else if (name === "logout") { state.userMenuOpen = false; logout(); }
@@ -1042,6 +1239,80 @@ function handleAppClick(event) {
   else if (name === "delete-item") deleteSelectedItem();
 }
 
+// 处理画廊图片悬停预览，避免用户必须点击后才能看到详情
+function handleGalleryPreviewHover(event) {
+  const previewCard = event.target.closest("[data-preview-id]");
+
+  if (!previewCard || !app.contains(previewCard)) return;
+
+  // 调用局部预览更新函数，避免整页重渲染造成刷新感
+  if (selectPreviewItemFromCard(previewCard)) updatePreviewDetailFromHover(previewCard);
+}
+
+// 根据悬停卡片所属页面更新右侧详情的当前图片
+function selectPreviewItemFromCard(card) {
+  const id = Number(card.dataset.previewId);
+  const scope = card.dataset.previewScope;
+
+  if (!Number.isFinite(id)) return false;
+  if (scope === "history") return updateSelectedId("historySelectedId", id);
+  if (scope === "my-gallery") return updateSelectedId("selectedMyGalleryId", id);
+
+  return updateSelectedId("selectedId", id);
+}
+
+// 更新选中 ID，并返回是否发生真实变化
+function updateSelectedId(key, id) {
+  if (Number(state[key]) === Number(id)) return false;
+
+  state[key] = id;
+  return true;
+}
+
+// 局部更新悬停预览相关 DOM，不重建画廊网格
+function updatePreviewDetailFromHover(card) {
+  // 调用选中态同步函数，只移动当前卡片高亮
+  syncPreviewActiveCard(card);
+
+  // 调用详情面板替换函数，只刷新右侧信息
+  replacePreviewDetailPanel();
+}
+
+// 同步当前悬停卡片的选中态
+function syncPreviewActiveCard(activeCard) {
+  app.querySelectorAll("[data-preview-id]").forEach((card) => {
+    const sameScope = card.dataset.previewScope === activeCard.dataset.previewScope;
+    card.classList.toggle("is-active", sameScope && card === activeCard);
+  });
+}
+
+// 替换右侧详情面板，避免触发整页淡入动画
+function replacePreviewDetailPanel() {
+  const panel = app.querySelector(".gallery-layout .detail-panel");
+  const nextPanel = createPreviewDetailPanel();
+
+  if (!panel || !nextPanel) return;
+  panel.replaceWith(nextPanel);
+}
+
+// 创建当前视图对应的详情面板节点
+function createPreviewDetailPanel() {
+  const template = document.createElement("template");
+  template.innerHTML = renderPreviewDetailPanel().trim();
+  const panel = template.content.firstElementChild;
+
+  panel?.classList.remove("content-fade-in");
+  return panel;
+}
+
+// 渲染当前视图对应的详情面板 HTML
+function renderPreviewDetailPanel() {
+  if (state.view === "history") return renderHistoryDetailPanel();
+  if (state.view === "my-gallery") return renderMyGalleryDetailPanel();
+
+  return renderDetailPanel();
+}
+
 // 打开放大预览，忽略空图片和占位图
 function openLightboxFromTrigger(trigger) {
   const image = trigger.dataset.lightbox;
@@ -1050,6 +1321,23 @@ function openLightboxFromTrigger(trigger) {
   state.lightboxImage = image;
   render();
   return true;
+}
+
+// 根据触发放大预览的卡片同步选中项，保证右侧详情跟随图片切换
+function selectItemFromLightboxTrigger(trigger) {
+  if (trigger.dataset.historySelect) {
+    state.historySelectedId = Number(trigger.dataset.historySelect);
+    return;
+  }
+
+  if (trigger.dataset.select) {
+    if (state.view === "my-gallery") {
+      state.selectedMyGalleryId = Number(trigger.dataset.select);
+      return;
+    }
+
+    state.selectedId = Number(trigger.dataset.select);
+  }
 }
 
 // 关闭放大预览，仅响应遮罩层和关闭按钮
@@ -1080,18 +1368,77 @@ function bindAuth() {
   form?.addEventListener("submit", handleAuthSubmit);
 }
 
+// 渲染验证码输入区域
+function renderVerificationCodeField() {
+  const countdownText = state.codeCountdown > 0 ? `${state.codeCountdown}s` : "获取验证码";
+  const disabled = state.codeCountdown > 0 || state.codeSending ? "disabled" : "";
+
+  return `
+    <div class="auth-input-group">
+      <label>验证码</label>
+      <div class="auth-input-wrap auth-code-wrap">
+        <span class="auth-input-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        </span>
+        <input name="verificationCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入6位验证码">
+        <button type="button" class="auth-code-btn" data-action="send-code" ${disabled}>${countdownText}</button>
+      </div>
+    </div>
+  `;
+}
+
 // 切换登录注册模式
 function switchAuthMode(mode) {
-  const form = app.querySelector("#authForm");
-  const button = form.querySelector(".auth-login-btn");
-  const heading = app.querySelector(".auth-form-header h2");
-  const subtitle = app.querySelector(".auth-form-header p");
+  state.authMode = mode;
+  render();
+}
 
-  form.dataset.authFormMode = mode;
-  button.textContent = mode === "login" ? "登录" : "注册";
-  heading.textContent = mode === "login" ? "欢迎回来 👋" : "创建账户";
-  subtitle.textContent = mode === "login" ? "登录你的 Kimo 账户，继续你的 AI 创造之旅" : "注册 Kimo 账户，开启你的 AI 创造之旅";
-  app.querySelectorAll("[data-auth-mode]").forEach((node) => node.classList.toggle("is-active", node.dataset.authMode === mode));
+// 发送验证码
+async function sendVerificationCode() {
+  const email = app.querySelector("#authForm input[name='email']")?.value?.trim();
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast("请输入有效的邮箱地址", "error");
+    return;
+  }
+
+  state.email = email;
+  state.codeSending = true;
+  render();
+
+  try {
+    const result = await api("/api/auth/send-code", { method: "POST", body: JSON.stringify({ email }) });
+    showToast("验证码已发送", "success");
+    startCodeCountdown(result.remainingSeconds ?? 60);
+  } catch (error) {
+    showToast(error.message || "发送失败", "error");
+  } finally {
+    state.codeSending = false;
+    render();
+  }
+}
+
+// 启动验证码倒计时，仅更新按钮文本避免输入框失焦
+function startCodeCountdown(seconds) {
+  state.codeCountdown = seconds;
+  updateCodeButtonText();
+  const timer = setInterval(() => {
+    state.codeCountdown--;
+    updateCodeButtonText();
+    if (state.codeCountdown <= 0) {
+      clearInterval(timer);
+      updateCodeButtonText();
+    }
+  }, 1000);
+}
+
+// 单独更新验证码按钮文本，避免全量渲染导致输入框失焦
+function updateCodeButtonText() {
+  const btn = app.querySelector(".auth-code-btn");
+  if (!btn) return;
+  const text = state.codeCountdown > 0 ? `${state.codeCountdown}s` : "获取验证码";
+  btn.textContent = text;
+  btn.disabled = state.codeCountdown > 0 || state.codeSending;
 }
 
 // 提交登录或注册
@@ -1111,6 +1458,7 @@ async function handleAuthSubmit(event) {
     const backTo = state.returnTo || "workspace";
     state.returnTo = "";
     state.view = backTo;
+    persistCurrentView(state.view);
     render();
   });
 }
@@ -1207,10 +1555,14 @@ function setView(view) {
   if (AUTH_REQUIRED_VIEWS.has(view) && !state.user) {
     state.returnTo = view;
     state.view = "auth";
+    persistCurrentView(state.view);
     render();
     return;
   }
+  if (state.view === view) return;
+
   state.view = view;
+  persistCurrentView(view);
   render();
   refreshDataIfNeeded(view);
 }
@@ -1219,9 +1571,12 @@ function setView(view) {
 function setSide(target) {
   if (isDisabledSideTarget(target)) return;
 
+  if (resolveSideActive(target)) return;
+
   if (AUTH_REQUIRED_SIDES.has(target) && !state.user) {
     state.returnTo = target === "workspace-edit" ? "workspace" : target;
     state.view = "auth";
+    persistCurrentView(state.view);
     render();
     return;
   }
@@ -1239,6 +1594,7 @@ function setSide(target) {
     }
   }
 
+  persistCurrentView(state.view);
   render();
   refreshDataIfNeeded(target === "workspace-edit" ? "workspace" : target);
 }
@@ -1246,10 +1602,26 @@ function setSide(target) {
 // 根据目标视图按需刷新数据，避免每次导航都全量刷新
 function refreshDataIfNeeded(view) {
   if (!state.user) return;
-  if (view === "gallery") refreshPublicGallery().then(render);
-  if (view === "my-gallery") refreshMyGallery().then(render);
-  if (view === "history") refreshHistory().then(render);
-  if (view === "workspace" || view === "workspace-edit") refreshWallet().then(render);
+  if (view === "gallery") {
+    runBackgroundDataRefresh(refreshPublicGallery);
+    return;
+  }
+  if (view === "my-gallery") {
+    runBackgroundDataRefresh(refreshMyGallery);
+    return;
+  }
+  if (view === "history") {
+    runBackgroundDataRefresh(refreshHistory);
+    return;
+  }
+  if (view === "workspace" || view === "workspace-edit") {
+    runBackgroundDataRefresh(refreshWallet);
+  }
+}
+
+// 执行后台数据刷新，保留统一加载动画并兜底错误提示
+function runBackgroundDataRefresh(work) {
+  work().catch((error) => showToast(error.message || "数据加载失败", "error"));
 }
 
 // 更新芯片组选中值
@@ -1387,6 +1759,7 @@ function logout() {
   state.user = null;
   state.userMenuOpen = false;
   state.view = "auth";
+  persistCurrentView(state.view);
   render();
 }
 
@@ -1443,14 +1816,14 @@ function renderToast() {
   return `<div class="toast${typeClass}">${escapeHtml(state.toast)}</div>`;
 }
 
-// 获取当前选中的公共画廊项
+// 获取当前选中的公共画廊可见项
 function selectedGalleryItem() {
-  return findSelectedItem(state.gallery, state.selectedId);
+  return findSelectedItem(galleryItems(), state.selectedId);
 }
 
-// 获取当前选中的我的画廊项
+// 获取当前选中的我的画廊可见项
 function selectedMyGalleryItem() {
-  return findSelectedItem(state.myGallery, state.selectedMyGalleryId);
+  return findSelectedItem(myGalleryItems(), state.selectedMyGalleryId);
 }
 
 // 获取当前选中的个人历史项
