@@ -51,6 +51,9 @@ const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
 const REFERENCE_IMAGE_MAX_BYTES = 48 * 1024 * 1024;
 const DISABLED_SIDE_TARGETS = new Set(["settings"]);
 const AUTH_VIEW_SESSION_KEY = "create_img_auth_view";
+const AUTH_MIN_PASSWORD_LENGTH = 6;
+const AUTH_EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const AUTH_VERIFICATION_CODE_PATTERN = /^\d{6}$/;
 const LOADING_SCOPE_WALLET = "wallet";
 const LOADING_SCOPE_GALLERY = "gallery";
 const LOADING_SCOPE_MY_GALLERY = "my-gallery";
@@ -145,10 +148,15 @@ async function refreshHistory() {
   await loadDataWithFade(LOADING_SCOPE_HISTORY, async () => {
     const payload = await api("/api/gallery");
 
-    state.history = payload.items;
-    state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
-    syncGeneratingStateFromHistory();
+    applyHistoryItems(payload.items);
   });
+}
+
+// 应用历史列表数据，并同步当前生成任务状态
+function applyHistoryItems(items) {
+  state.history = items;
+  state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
+  syncGeneratingStateFromHistory();
 }
 
 // 根据历史记录中的 pending/processing 状态同步生成按钮状态
@@ -184,8 +192,32 @@ function scheduleGenerationStatusRefresh() {
   if (!state.user || !hasActiveGeneration()) return;
 
   generationStatusTimer = setTimeout(async () => {
-    await refreshData();
+    await refreshGenerationStatus();
   }, GENERATION_STATUS_REFRESH_MS);
+}
+
+// 轻量刷新生成状态，避免轮询时重刷钱包和重建生成动画节点
+async function refreshGenerationStatus() {
+  if (!state.user) return;
+
+  const previousGeneratingMode = state.generatingMode;
+  const payload = await api("/api/gallery");
+
+  applyHistoryItems(payload.items);
+  if (shouldPatchActiveGeneration(previousGeneratingMode)) {
+    // 调用局部状态更新函数，让生成中光晕持续循环不被整页渲染打断
+    updateGenerationVisualState();
+    scheduleGenerationStatusRefresh();
+    return;
+  }
+
+  render();
+  scheduleGenerationStatusRefresh();
+}
+
+// 判断当前生成任务是否仍可通过局部 DOM 更新延续动画
+function shouldPatchActiveGeneration(previousGeneratingMode) {
+  return Boolean(previousGeneratingMode && hasActiveGeneration() && state.generatingMode === previousGeneratingMode);
 }
 
 // 清理生成状态刷新定时器，避免重复轮询
@@ -374,7 +406,7 @@ function renderAuth() {
             <h2>${state.authMode === "register" ? "创建账户" : "欢迎回来 👋"}</h2>
             <p>${state.authMode === "register" ? "注册 Kimo 账户，开启你的 AI 创造之旅" : "登录你的 Kimo 账户，继续你的 AI 创造之旅"}</p>
           </div>
-          <form id="authForm" data-auth-form-mode="${state.authMode}">
+          <form id="authForm" data-auth-form-mode="${state.authMode}" novalidate>
             <div class="auth-input-group">
               <label>邮箱</label>
               <div class="auth-input-wrap">
@@ -443,7 +475,7 @@ function renderTopbar() {
       </nav>
       <div class="top-actions">
         <button class="icon-btn" title="通知">${icon("bell")}</button>
-        ${state.user ? `<span class="mobile-balance ${balanceClass}">${state.user.balanceCents ?? 0} 积分</span>` : ""}
+        ${state.user ? `<span class="mobile-balance ${balanceClass}" data-wallet-balance data-wallet-balance-suffix="credits">${state.user.balanceCents ?? 0} 积分</span>` : ""}
         ${state.user ? renderUserMenu() : `<button class="primary-btn" data-action="open-auth" style="width:auto;padding:0 18px;height:36px;font-size:13px">登录</button>`}
       </div>
     </header>
@@ -493,7 +525,7 @@ function renderSidebar() {
       ${state.user ? `
         <section class="wallet-card ${walletClass}">
           <small>积分余额</small>
-          <div class="wallet-amount">${state.user.balanceCents ?? 0}</div>
+          <div class="wallet-amount" data-wallet-balance>${state.user.balanceCents ?? 0}</div>
           <button class="secondary-btn" data-action="open-recharge">升级套餐</button>
         </section>
       ` : `
@@ -592,7 +624,7 @@ function renderPromptPanel() {
         <label>加入公共画廊</label>
         <div class="toggle-switch ${state.isPublic ? "is-on" : ""}" data-toggle="isPublic"></div>
       </div>
-      <button class="primary-btn" data-action="generate" ${hasActiveGeneration() || !state.user ? "disabled" : ""}>${renderGenerateButtonText()}</button>
+      <button class="primary-btn" data-action="generate" data-generation-submit ${hasActiveGeneration() || !state.user ? "disabled" : ""}>${renderGenerateButtonText()}</button>
       <div class="cost">预计消耗 ${calculateCostCents()} 积分</div>
     </aside>
   `;
@@ -742,6 +774,7 @@ function renderSettingsPanel() {
 // 渲染图文生成对比区
 function renderCompareStage() {
   const resolution = getResolution(state.ratio);
+  const aspectRatio = getAspectRatio(state.ratio);
   const primaryLightboxImage = resolvePrimaryPreviewImage();
   const primaryPreview = renderPrimaryImage();
   const referenceLightboxImage = state.referenceImage ?? "";
@@ -756,12 +789,12 @@ function renderCompareStage() {
         <div class="compare-grid">
           <div>
             <h3>原图（参考）</h3>
-            <div class="image-preview compare-card" data-lightbox="${referenceLightboxImage}">${referencePreview}</div>
+            <div class="image-preview compare-card compare-reference-card" style="aspect-ratio:${aspectRatio}" data-lightbox="${referenceLightboxImage}">${referencePreview}</div>
           </div>
           <div class="arrow-circle">${icon("arrow-right")}</div>
           <div>
             <h3>生成结果</h3>
-            <div class="image-preview compare-card" data-lightbox="${primaryLightboxImage}">${primaryPreview}<span class="preview-badge">${resolution}</span></div>
+            <div class="image-preview compare-card compare-result-card" style="aspect-ratio:${aspectRatio}" data-lightbox="${primaryLightboxImage}">${primaryPreview}<span class="preview-badge">${resolution}</span></div>
           </div>
         </div>
       </div>
@@ -835,7 +868,7 @@ function renderGeneratingPreview() {
         <span></span>
       </div>
       <div class="generation-status">
-        <strong>${renderGenerationStatusTitle()}</strong>
+        <strong data-generation-title>${renderGenerationStatusTitle()}</strong>
         <span data-generation-progress>${renderGenerationStatusDetail()}</span>
       </div>
       ${renderGenerationWaitHint()}
@@ -900,10 +933,10 @@ function renderThumb(image, index) {
 function renderProgress() {
   return `
     <div class="progress-area">
-      <strong>${hasActiveGeneration() ? renderGenerationStatusTitle() : "等待生成"}</strong>
+      <strong data-generation-title>${hasActiveGeneration() ? renderGenerationStatusTitle() : "等待生成"}</strong>
       <span data-generation-progress style="float:right">${hasActiveGeneration() ? renderGenerationStatusDetail() : `${state.progress}%`}</span>
-      <div class="progress-track"><div data-generation-progress-bar class="progress-bar" style="--progress:${state.progress}%"></div></div>
-      <p class="empty-state">预计消耗 ${calculateCostCents()} 积分</p>
+      <div class="progress-track progress-track-energy"><div data-generation-progress-bar class="progress-bar progress-bar-energy" style="--progress:${state.progress}%"></div></div>
+      <p class="empty-state">预扣 ${calculateCostCents()} 积分，失败自动返还</p>
       ${hasActiveGeneration() ? renderGenerationWaitHint() : ""}
     </div>
   `;
@@ -1480,25 +1513,127 @@ function switchAuthMode(mode) {
   render();
 }
 
+// 从登录注册表单创建认证请求体，并统一规整用户输入
+function createAuthFormPayload(form) {
+  const formData = new FormData(form);
+
+  return {
+    email: normalizeAuthEmail(formData.get("email")),
+    password: String(formData.get("password") ?? ""),
+    verificationCode: normalizeVerificationCode(formData.get("verificationCode"))
+  };
+}
+
+// 标准化认证邮箱，避免空格和大小写导致重复判断
+function normalizeAuthEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+// 标准化验证码，避免复制时带入空格
+function normalizeVerificationCode(value) {
+  return String(value ?? "").trim();
+}
+
+// 校验登录注册表单，返回可直接展示的中文提示
+function validateAuthFormPayload(payload, mode) {
+  const emailMessage = validateAuthEmail(payload.email);
+  if (emailMessage) return emailMessage;
+
+  const passwordMessage = validateAuthPassword(payload.password);
+  if (passwordMessage) return passwordMessage;
+
+  if (mode !== "register") return "";
+
+  return validateAuthVerificationCode(payload.verificationCode);
+}
+
+// 校验认证邮箱输入
+function validateAuthEmail(email) {
+  if (!email) return "请输入邮箱地址";
+  if (!AUTH_EMAIL_PATTERN.test(email)) return "请输入有效的邮箱地址";
+
+  return "";
+}
+
+// 校验认证密码输入
+function validateAuthPassword(password) {
+  if (!password) return "请输入密码";
+  if (password.length < AUTH_MIN_PASSWORD_LENGTH) return `密码至少 ${AUTH_MIN_PASSWORD_LENGTH} 位`;
+
+  return "";
+}
+
+// 校验注册验证码输入
+function validateAuthVerificationCode(code) {
+  if (!code) return "请输入验证码";
+  if (!AUTH_VERIFICATION_CODE_PATTERN.test(code)) return "请输入 6 位数字验证码";
+
+  return "";
+}
+
+// 将认证链路异常转换成中文友好提示
+function toFriendlyAuthErrorMessage(error, fallback) {
+  const message = String(error?.message ?? "").trim();
+
+  if (!message) return fallback;
+  if (containsChinese(message)) return message;
+  if (isNetworkAuthError(message)) return "网络连接失败，请检查网络后重试";
+  if (isResponseParseAuthError(message)) return "服务返回异常，请稍后重试";
+  if (isEmailAuthError(message)) return "请输入有效的邮箱地址";
+  if (isPasswordAuthError(message)) return "密码格式不正确，请重新输入";
+
+  return fallback;
+}
+
+// 判断错误消息是否已经是中文业务提示
+function containsChinese(message) {
+  return /[\u4e00-\u9fff]/.test(message);
+}
+
+// 判断是否为认证接口网络错误
+function isNetworkAuthError(message) {
+  return /failed to fetch|load failed|networkerror|network error/i.test(message);
+}
+
+// 判断是否为认证接口响应解析错误
+function isResponseParseAuthError(message) {
+  return /json|unexpected token|syntaxerror/i.test(message);
+}
+
+// 判断是否为邮箱相关英文错误
+function isEmailAuthError(message) {
+  return /email|e-mail|include an '@'|valid address|mailbox/i.test(message);
+}
+
+// 判断是否为密码相关英文错误
+function isPasswordAuthError(message) {
+  return /password/i.test(message);
+}
+
 // 发送验证码
 async function sendVerificationCode() {
-  const email = app.querySelector("#authForm input[name='email']")?.value?.trim();
+  const form = app.querySelector("#authForm");
+  if (!form) return;
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showToast("请输入有效的邮箱地址", "error");
+  const payload = createAuthFormPayload(form);
+  const validationMessage = validateAuthEmail(payload.email);
+
+  if (validationMessage) {
+    showToast(validationMessage, "error");
     return;
   }
 
-  state.email = email;
+  state.email = payload.email;
   state.codeSending = true;
   render();
 
   try {
-    const result = await api("/api/auth/send-code", { method: "POST", body: JSON.stringify({ email }) });
+    // 调用验证码接口前已完成本地校验，避免浏览器英文校验提示泄露给用户
+    const result = await api("/api/auth/send-code", { method: "POST", body: JSON.stringify({ email: payload.email }) });
     showToast("验证码已发送", "success");
     startCodeCountdown(result.remainingSeconds ?? 60);
   } catch (error) {
-    showToast(error.message || "发送失败", "error");
+    showToast(toFriendlyAuthErrorMessage(error, "验证码发送失败，请稍后重试"), "error");
   } finally {
     state.codeSending = false;
     render();
@@ -1532,22 +1667,46 @@ function updateCodeButtonText() {
 async function handleAuthSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const payload = Object.fromEntries(new FormData(form));
+  const payload = createAuthFormPayload(form);
   const path = form.dataset.authFormMode === "register" ? "/api/auth/register" : "/api/auth/login";
+  const validationMessage = validateAuthFormPayload(payload, form.dataset.authFormMode);
 
-  await runAction(async () => {
+  if (validationMessage) {
+    showToast(validationMessage, "error");
+    return;
+  }
+
+  try {
+    // 调用认证接口前统一完成本地校验，避免英文原生异常和无效请求进入后端
     const result = await api(path, { method: "POST", body: JSON.stringify(payload) });
-    state.token = result.token;
-    state.user = result.user;
-    state.modal = "";
-    localStorage.setItem("create_img_token", state.token);
-    await refreshData();
-    const backTo = state.returnTo || "workspace";
-    state.returnTo = "";
-    state.view = backTo;
-    persistCurrentView(state.view);
-    render();
-  });
+
+    // 调用会话落地函数，统一保存登录状态和本地令牌
+    applyAuthenticatedSession(result);
+
+    // 调用登录后跳转流程，拉取用户数据并回到目标页面
+    await redirectAfterAuth();
+  } catch (error) {
+    showToast(toFriendlyAuthErrorMessage(error, "登录注册失败，请稍后重试"), "error");
+  }
+}
+
+// 应用认证成功返回结果，并持久化本地会话令牌
+function applyAuthenticatedSession(result) {
+  state.token = result.token;
+  state.user = result.user;
+  state.modal = "";
+  localStorage.setItem("create_img_token", state.token);
+}
+
+// 登录注册成功后刷新数据并回到原目标页面
+async function redirectAfterAuth() {
+  await refreshData();
+  const backTo = state.returnTo || "workspace";
+
+  state.returnTo = "";
+  state.view = backTo;
+  persistCurrentView(state.view);
+  render();
 }
 
 // 生成图片
@@ -1568,7 +1727,9 @@ async function generateImage() {
       return api(path, { method: "POST", body: JSON.stringify(createGenerationPayload()) });
     });
     applyGenerationQueueState(payload);
-    await refreshData();
+    applyGenerationBalance(payload);
+    updateGenerationVisualState();
+    await refreshGenerationStatus();
     showGenerationQueueToast(payload);
   } catch (error) {
     showToast(error.message || "生成失败，请稍后重试", "error");
@@ -1583,6 +1744,14 @@ function applyGenerationQueueState(payload) {
   if (payload.images?.length) {
     state.generatedImages = payload.images;
   }
+}
+
+// 应用生成提交返回的余额，只更新数值不触发钱包刷新动画
+function applyGenerationBalance(payload) {
+  if (!state.user || typeof payload.balanceCents !== "number") return;
+
+  state.user.balanceCents = payload.balanceCents;
+  updateWalletBalanceText();
 }
 
 // 展示生成提交后的队列提示
@@ -1625,31 +1794,57 @@ async function runGeneratingAction(work) {
     state.generationStatus = "";
     state.queuePosition = null;
     state.generatingMode = "";
+    render();
     throw error;
   } finally {
     clearInterval(timer);
-    render();
   }
 }
 
 // 推进生成进度条，远端未返回前最多走到 92
 function advanceProgress() {
   state.progress = Math.min(92, state.progress + 9);
-  updateGenerationProgress();
+  updateGenerationVisualState();
 }
 
 // 局部刷新生成进度，避免整页 render 重启动画和余额区域
 function updateGenerationProgress() {
+  updateGenerationVisualState();
+}
+
+// 局部刷新生成状态文本、按钮和进度条，保持光晕动画 DOM 不卸载
+function updateGenerationVisualState() {
+  const title = renderGenerationStatusTitle();
+  const detail = renderGenerationStatusDetail();
   const progress = `${Math.max(1, Math.round(state.progress))}%`;
+
+  // 调用状态标题更新，保持排队和生成中的文字同步
+  app.querySelectorAll("[data-generation-title]").forEach((node) => {
+    node.textContent = title;
+  });
 
   // 调用进度文本更新，保持生成动画 DOM 稳定不被卸载
   app.querySelectorAll("[data-generation-progress]").forEach((node) => {
-    node.textContent = progress;
+    node.textContent = detail;
   });
 
   // 调用进度条样式更新，只改 CSS 变量避免布局重排
   app.querySelectorAll("[data-generation-progress-bar]").forEach((node) => {
     node.style.setProperty("--progress", progress);
+  });
+
+  // 调用生成按钮文字更新，避免为了改文案整页重渲染
+  app.querySelectorAll("[data-generation-submit]").forEach((node) => {
+    node.textContent = renderGenerateButtonText();
+  });
+}
+
+// 局部更新钱包余额文字，提交扣费后不进入钱包 loading 态
+function updateWalletBalanceText() {
+  const balance = state.user?.balanceCents ?? 0;
+
+  app.querySelectorAll("[data-wallet-balance]").forEach((node) => {
+    node.textContent = node.dataset.walletBalanceSuffix === "credits" ? `${balance} 积分` : String(balance);
   });
 }
 
@@ -1902,12 +2097,49 @@ async function runAction(work) {
 function showToast(message, type = "") {
   state.toast = message;
   state.toastType = type;
-  render();
+  renderToastChange();
   setTimeout(() => {
     state.toast = "";
     state.toastType = "";
-    render();
+    renderToastChange();
   }, 3000);
+}
+
+// 渲染 toast 变化，生成中只局部更新避免重启动画
+function renderToastChange() {
+  if (hasActiveGeneration()) {
+    updateToastView();
+    return;
+  }
+
+  render();
+}
+
+// 局部更新 toast 节点，避免整页重渲染打断生成光晕
+function updateToastView() {
+  const currentToast = app.querySelector(".toast");
+  const nextToast = createToastNode();
+
+  if (!nextToast) {
+    currentToast?.remove();
+    return;
+  }
+  if (currentToast) {
+    currentToast.replaceWith(nextToast);
+    return;
+  }
+  app.append(nextToast);
+}
+
+// 创建当前 toast 对应的 DOM 节点
+function createToastNode() {
+  const toastHtml = renderToast().trim();
+
+  if (!toastHtml) return null;
+
+  const template = document.createElement("template");
+  template.innerHTML = toastHtml;
+  return template.content.firstElementChild;
 }
 
 // 展示弹窗

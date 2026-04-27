@@ -113,7 +113,7 @@ export class ImageService {
     // 调用队列调度器，尽快把有容量的任务推进到处理中
     const startedIds = await this.#dispatchQueuedGenerations();
 
-    return this.#createQueuePayload(charge.generationId, startedIds);
+    return this.#createQueuePayload(charge, startedIds);
   }
 
   // 暂存队列任务上下文，保留图文生图的参考图数据用于后台消费
@@ -191,15 +191,20 @@ export class ImageService {
   }
 
   // 创建生成提交后的队列响应
-  async #createQueuePayload(generationId, startedIds) {
-    if (startedIds.has(generationId)) {
-      return { generationId, status: "processing", queuePosition: null };
+  async #createQueuePayload(charge, startedIds) {
+    const basePayload = {
+      generationId: charge.generationId,
+      balanceCents: charge.balanceCents
+    };
+
+    if (startedIds.has(charge.generationId)) {
+      return { ...basePayload, status: "processing", queuePosition: null };
     }
 
     return {
-      generationId,
+      ...basePayload,
       status: "pending",
-      queuePosition: await this.generationRepository.countPendingBefore(generationId)
+      queuePosition: await this.generationRepository.countPendingBefore(charge.generationId)
     };
   }
 

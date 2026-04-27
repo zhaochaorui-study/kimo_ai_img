@@ -162,10 +162,26 @@ test("generation progress updates do not remount the whole app", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
   assert.match(source, /function updateGenerationProgress\(\)/);
+  assert.match(source, /function updateGenerationVisualState\(\)/);
   assert.match(source, /data-generation-progress/);
   assert.match(source, /data-generation-progress-bar/);
-  assert.match(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*updateGenerationProgress\(\);\s*\}/);
+  assert.match(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*updateGenerationVisualState\(\);\s*\}/);
+  assert.match(source, /function updateGenerationProgress\(\) \{\s*updateGenerationVisualState\(\);\s*\}/);
   assert.doesNotMatch(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*render\(\);\s*\}/);
+});
+
+test("generation progress bar uses energetic layered motion", async () => {
+  const appSource = await readFile(PUBLIC_APP_PATH, "utf8");
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(appSource, /class="progress-track progress-track-energy"/);
+  assert.match(appSource, /class="progress-bar progress-bar-energy"/);
+  assert.match(styleSource, /\.progress-track-energy::before/);
+  assert.match(styleSource, /\.progress-bar-energy::before/);
+  assert.match(styleSource, /\.progress-bar-energy::after/);
+  assert.match(styleSource, /@keyframes progressEnergyFlow/);
+  assert.match(styleSource, /@keyframes progressSparkRun/);
+  assert.match(styleSource, /prefers-reduced-motion: reduce[\s\S]*\.progress-bar-energy::before/);
 });
 
 test("generation submit applies queue status and refreshes data", async () => {
@@ -173,7 +189,7 @@ test("generation submit applies queue status and refreshes data", async () => {
 
   assert.match(source, /const payload = await runGeneratingAction\(async \(\) => \{/);
   assert.match(source, /applyGenerationQueueState\(payload\);/);
-  assert.match(source, /await refreshData\(\);/);
+  assert.match(source, /await refreshGenerationStatus\(\);/);
   assert.match(source, /showGenerationQueueToast\(payload\);/);
 });
 
@@ -182,20 +198,70 @@ test("generation queue position is refreshed while a task is active", async () =
 
   assert.match(source, /const GENERATION_STATUS_REFRESH_MS = 2500;/);
   assert.match(source, /function scheduleGenerationStatusRefresh\(\)/);
-  assert.match(source, /setTimeout\(async \(\) => \{\s*await refreshData\(\);\s*\}, GENERATION_STATUS_REFRESH_MS\)/);
+  assert.match(source, /setTimeout\(async \(\) => \{\s*await refreshGenerationStatus\(\);\s*\}, GENERATION_STATUS_REFRESH_MS\)/);
   assert.match(source, /state\.queuePosition = running\.queuePosition \?\? null;/);
   assert.match(source, /第 \$\{state\.queuePosition\} 位/);
+});
+
+test("generation polling skips wallet refresh and keeps active aura mounted", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+  const refreshStatusBlock = source.slice(
+    source.indexOf("async function refreshGenerationStatus()"),
+    source.indexOf("// 判断当前生成任务是否仍可通过局部 DOM 更新延续动画")
+  );
+
+  assert.match(source, /async function refreshGenerationStatus\(\)/);
+  assert.match(source, /const payload = await api\("\/api\/gallery"\);/);
+  assert.match(source, /applyHistoryItems\(payload\.items\);/);
+  assert.match(source, /if \(shouldPatchActiveGeneration\(previousGeneratingMode\)\) \{[\s\S]*updateGenerationVisualState\(\);[\s\S]*return;/);
+  assert.doesNotMatch(refreshStatusBlock, /refreshWallet\(/);
+  assert.doesNotMatch(source, /setTimeout\(async \(\) => \{\s*await refreshData\(\);\s*\}, GENERATION_STATUS_REFRESH_MS\)/);
+});
+
+test("generation submit applies returned balance without wallet loading refresh", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /applyGenerationBalance\(payload\);/);
+  assert.match(source, /function applyGenerationBalance\(payload\)/);
+  assert.match(source, /state\.user\.balanceCents = payload\.balanceCents;/);
+});
+
+test("toast updates do not remount an active generation preview", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+  const showToastBlock = source.slice(
+    source.indexOf("function showToast(message, type = \"\")"),
+    source.indexOf("// 渲染 toast 变化，生成中只局部更新避免重启动画")
+  );
+
+  assert.match(source, /function renderToastChange\(\)/);
+  assert.match(source, /function updateToastView\(\)/);
+  assert.match(showToastBlock, /renderToastChange\(\);/);
+  assert.match(showToastBlock, /setTimeout\(\(\) => \{[\s\S]*renderToastChange\(\);/);
+  assert.doesNotMatch(showToastBlock, /render\(\);/);
 });
 
 test("compare reference card shows the uploaded reference image", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
+  assert.match(source, /const aspectRatio = getAspectRatio\(state\.ratio\);/);
   assert.match(source, /const primaryPreview = renderPrimaryImage\(\);/);
   assert.match(source, /const referenceLightboxImage = state\.referenceImage \?\? "";/);
   assert.match(source, /const referencePreview = state\.referenceImage/);
   assert.match(source, /renderImageTag\("generated-image", state\.referenceImage, "参考图"\)/);
-  assert.match(source, /data-lightbox="\$\{referenceLightboxImage\}">\$\{referencePreview\}<\/div>/);
-  assert.match(source, /data-lightbox="\$\{primaryLightboxImage\}">\$\{primaryPreview\}<span class="preview-badge">/);
+  assert.match(source, /class="image-preview compare-card compare-reference-card" style="aspect-ratio:\$\{aspectRatio\}" data-lightbox="\$\{referenceLightboxImage\}">\$\{referencePreview\}<\/div>/);
+  assert.match(source, /class="image-preview compare-card compare-result-card" style="aspect-ratio:\$\{aspectRatio\}" data-lightbox="\$\{primaryLightboxImage\}">\$\{primaryPreview\}<span class="preview-badge">/);
+});
+
+test("compare preview cards keep selected ratio and show full images", async () => {
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+  const compareCardBlock = extractCssRule(styleSource, ".compare-card");
+  const compareImageBlock = extractCssRule(styleSource, ".compare-card .generated-image");
+
+  assert.match(compareCardBlock, /min-height:\s*0;/);
+  assert.match(compareCardBlock, /width:\s*100%;/);
+  assert.match(compareImageBlock, /object-fit:\s*contain;/);
+  assert.match(compareImageBlock, /background:/);
+  assert.doesNotMatch(compareCardBlock, /min-height:\s*340px;/);
 });
 
 test("reference upload field stays a file picker instead of image preview", async () => {
@@ -421,9 +487,23 @@ test("auth register mode updates selected tab and submits register form", async 
 
   assert.match(source, /class="auth-tab \$\{state\.authMode === "login" \? "is-active" : ""\}" data-auth-mode="login"/);
   assert.match(source, /class="auth-tab \$\{state\.authMode === "register" \? "is-active" : ""\}" data-auth-mode="register"/);
-  assert.match(source, /<form id="authForm" data-auth-form-mode="\$\{state\.authMode\}">/);
+  assert.match(source, /<form id="authForm" data-auth-form-mode="\$\{state\.authMode\}" novalidate>/);
   assert.match(source, /state\.authMode === "register" \? renderVerificationCodeField\(\) : ""/);
   assert.match(source, /const path = form\.dataset\.authFormMode === "register" \? "\/api\/auth\/register" : "\/api\/auth\/login";/);
+});
+
+test("auth form owns validation and converts auth errors to friendly Chinese messages", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /<form id="authForm" data-auth-form-mode="\$\{state\.authMode\}" novalidate>/);
+  assert.match(source, /const AUTH_EMAIL_PATTERN =/);
+  assert.match(source, /function createAuthFormPayload\(form\)/);
+  assert.match(source, /function validateAuthFormPayload\(payload, mode\)/);
+  assert.match(source, /const validationMessage = validateAuthFormPayload\(payload, form\.dataset\.authFormMode\);/);
+  assert.match(source, /showToast\(validationMessage, "error"\);/);
+  assert.match(source, /toFriendlyAuthErrorMessage\(error, "登录注册失败，请稍后重试"\)/);
+  assert.match(source, /toFriendlyAuthErrorMessage\(error, "验证码发送失败，请稍后重试"\)/);
+  assert.doesNotMatch(source, /showToast\(error\.message \|\| "发送失败", "error"\);/);
 });
 
 test("auth page refresh keeps the current tab on auth instead of gallery", async () => {

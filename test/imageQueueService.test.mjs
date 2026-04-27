@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { ImageService } from "../src/services/imageService.mjs";
 
@@ -9,7 +10,7 @@ test("ImageService queues new generation when global active limit is reached", a
 
   const result = await service.createTextImages(7, createTextGenerationInput());
 
-  assert.deepEqual(result, { generationId: 21, status: "pending", queuePosition: 1 });
+  assert.deepEqual(result, { generationId: 21, status: "pending", queuePosition: 1, balanceCents: 90 });
   assert.deepEqual(dependencies.generationRepository.processingIds, []);
   assert.equal(dependencies.remoteImageClient.textCalls.length, 0);
 });
@@ -20,9 +21,20 @@ test("ImageService starts a queued generation when global active capacity is ava
 
   const result = await service.createTextImages(7, createTextGenerationInput());
 
-  assert.deepEqual(result, { generationId: 21, status: "processing", queuePosition: null });
+  assert.deepEqual(result, { generationId: 21, status: "processing", queuePosition: null, balanceCents: 90 });
   assert.deepEqual(dependencies.generationRepository.processingIds, [21]);
   assert.equal(dependencies.remoteImageClient.textCalls.length, 1);
+});
+
+test("ImageService refunds precharged credits when remote generation fails", async () => {
+  const dependencies = createQueueDependencies({ processingCount: 1, remoteFailure: new Error("upstream failed") });
+  const service = createQueueImageService(dependencies);
+
+  const result = await service.createTextImages(7, createTextGenerationInput());
+  await waitForQueueSettled();
+
+  assert.equal(result.balanceCents, 90);
+  assert.deepEqual(dependencies.walletService.refunds, [{ userId: 7, generationId: 21, costCents: 10, message: "upstream failed" }]);
 });
 
 // 创建带队列依赖的图片服务，隔离并发调度测试装配
@@ -45,9 +57,14 @@ function createQueueDependencies(options) {
   return {
     generationRepository,
     walletService: new MemoryWalletService(generationRepository),
-    remoteImageClient: new MemoryRemoteImageClient(),
+    remoteImageClient: new MemoryRemoteImageClient(options),
     imageStorageService: new MemoryImageStorageService()
   };
+}
+
+// 等待后台队列任务完成一次事件循环，便于断言失败退款副作用
+async function waitForQueueSettled() {
+  await delay(0);
 }
 
 // 创建文生图输入对象，避免测试重复铺参数
@@ -101,6 +118,7 @@ class MemoryGenerationRepository {
 class MemoryWalletService {
   constructor(generationRepository) {
     this.generationRepository = generationRepository;
+    this.refunds = [];
   }
 
   // 扣费并创建待处理生成记录
@@ -109,16 +127,23 @@ class MemoryWalletService {
     this.userId = userId;
     return { generationId: 21, balanceCents: 90 };
   }
+
+  // 记录失败退款请求
+  async refundGeneration(userId, generationId, costCents, message) {
+    this.refunds.push({ userId, generationId, costCents, message });
+  }
 }
 
 class MemoryRemoteImageClient {
-  constructor() {
+  constructor(options = {}) {
     this.textCalls = [];
+    this.remoteFailure = options.remoteFailure;
   }
 
   // 记录文生图远端调用
   async createTextImages(generation) {
     this.textCalls.push(generation);
+    if (this.remoteFailure) throw this.remoteFailure;
     return ["image-data"];
   }
 }
