@@ -50,3 +50,26 @@ test("ImageStorageService saves base64 images and returns server relative paths"
     await rm(storageRoot, { recursive: true, force: true });
   }
 });
+
+test("ImageStorageService keeps jpeg and webp file extensions from data URLs", async () => {
+  const storageRoot = await mkdtemp(join(tmpdir(), "kimo-images-"));
+  const service = new ImageStorageService({
+    storageRoot,
+    publicPrefix: "/generated-images"
+  });
+
+  try {
+    const paths = await service.saveGenerationImages({
+      userId: 7,
+      generationId: 12,
+      images: ["data:image/jpeg;base64,aGVsbG8=", "data:image/webp;base64,d29ybGQ="]
+    });
+
+    assert.deepEqual(paths, [
+      "/generated-images/user-7/generation-12/image-1.jpeg",
+      "/generated-images/user-7/generation-12/image-2.webp"
+    ]);
+  } finally {
+    await rm(storageRoot, { recursive: true, force: true });
+  }
+});

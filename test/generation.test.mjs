@@ -32,6 +32,30 @@ test("GenerationRequest defaults to square ratio and one image", () => {
   assert.equal(request.quantity, 1);
 });
 
+test("GenerationRequest normalizes image quality and compression options", () => {
+  const request = new GenerationRequest({
+    prompt: "minimal product shot",
+    quality: "high",
+    outputFormat: "webp",
+    outputCompression: 82
+  });
+
+  assert.equal(request.quality, "high");
+  assert.equal(request.outputFormat, "webp");
+  assert.equal(request.outputCompression, 82);
+});
+
+test("GenerationRequest ignores realtime preview options", () => {
+  const request = new GenerationRequest({
+    prompt: "minimal product shot",
+    stream: true,
+    partialImages: 3
+  });
+
+  assert.equal(request.stream, undefined);
+  assert.equal(request.partialImages, undefined);
+});
+
 test("createPromptSeed returns a stable positive seed for the same prompt", () => {
   const firstSeed = createPromptSeed("quiet luxury product shot");
   const secondSeed = createPromptSeed("quiet luxury product shot");

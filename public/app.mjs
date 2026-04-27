@@ -8,6 +8,9 @@ const state = {
   style: "产品摄影",
   ratio: "1:1",
   quantity: 1,
+  outputQuality: "auto",
+  outputFormat: "png",
+  outputCompression: 100,
   referenceImage: "",
   referenceImageName: "",
   gallery: [],
@@ -16,6 +19,7 @@ const state = {
   selectedId: null,
   selectedMyGalleryId: null,
   generatedImages: [],
+  allowLatestHistoryPreviewSync: false,
   generatingMode: "",
   generationStatus: "",
   queuePosition: null,
@@ -163,6 +167,7 @@ function applyHistoryItems(items) {
 function syncGeneratingStateFromHistory() {
   const running = state.history.find((item) => item.status === "pending" || item.status === "processing");
   if (running) {
+    state.allowLatestHistoryPreviewSync = true;
     state.generatingMode = running.mode;
     state.generationStatus = running.status;
     state.queuePosition = running.queuePosition ?? null;
@@ -178,6 +183,8 @@ function syncGeneratingStateFromHistory() {
 
 // 从最新成功历史同步预览图，让异步队列完成后工作台自动展示结果
 function syncGeneratedImagesFromLatestHistory() {
+  if (!state.allowLatestHistoryPreviewSync) return;
+
   const latestSucceeded = state.history.find((item) => item.status === "succeeded" && item.images?.length);
 
   if (latestSucceeded) {
@@ -609,7 +616,6 @@ function renderWorkbench() {
 function renderPromptPanel() {
   return `
     <aside class="tool-panel">
-      ${renderCurrentModuleTab()}
       ${state.mode === "image-prompt" ? renderUploadField() : ""}
       <div class="field">
         <label>提示词${state.mode === "image-prompt" ? "（可选）" : ""}</label>
@@ -618,7 +624,10 @@ function renderPromptPanel() {
       </div>
       <div class="field"><label>模型</label>${renderSelect("modelName", ["Kimo Image", "Aurora XL v2"])}</div>
       <div class="field"><label>宽高比</label>${renderChips("ratio", ["1:1", "4:3", "16:9"])}</div>
-      <div class="field"><label>生成数量</label>${renderChips("quantity", [1, 2, 4])}</div>
+      <div class="field"><label>生成数量</label>${renderChips("quantity", [1, 2])}</div>
+      <div class="field"><label>质量</label>${renderSelect("outputQuality", ["auto", "low", "medium", "high"])}</div>
+      <div class="field"><label>输出格式</label>${renderSelect("outputFormat", ["png", "jpeg", "webp"])}</div>
+      ${renderOutputCompressionField()}
 
       <div class="toggle-field">
         <label>加入公共画廊</label>
@@ -638,14 +647,14 @@ function renderGenerateButtonText() {
   return "开始生成";
 }
 
-// 渲染当前模块标识，模块切换统一交给左侧导航
-function renderCurrentModuleTab() {
-  return `<div class="tabs module-tabs"><span class="tab-btn is-active">${currentModuleLabel()}</span></div>`;
-}
-
-// 获取当前工作台模块名称，保持和左侧导航一致
-function currentModuleLabel() {
-  return state.mode === "image-prompt" ? "图文生图" : "文生图";
+// 渲染 JPEG/WebP 输出压缩等级控件
+function renderOutputCompressionField() {
+  return `
+    <div class="field">
+      <div class="slider-header"><label>压缩等级</label><span>${state.outputCompression}</span></div>
+      <input type="range" min="0" max="100" step="1" value="${state.outputCompression}" data-slider="outputCompression">
+    </div>
+  `;
 }
 
 // 渲染参考图上传区域
@@ -805,9 +814,8 @@ function renderCompareStage() {
 
 // 渲染主预览图片，只展示当前用户自己的生成结果
 function renderPrimaryImage() {
-  if (state.generatingMode === state.mode) return renderGeneratingPreview();
-
   const image = state.generatedImages[0];
+  if (state.generatingMode === state.mode) return renderGeneratingPreview();
 
   return image ? renderImageTag("generated-image", image, "生成结果") : renderEmptyPreview();
 }
@@ -1771,6 +1779,9 @@ function createGenerationPayload() {
     modelName: state.modelName,
     ratio: state.ratio,
     quantity: state.quantity,
+    quality: state.outputQuality,
+    outputFormat: state.outputFormat,
+    outputCompression: state.outputCompression,
     referenceImage: state.referenceImage,
     imageName: state.referenceImageName,
     isPublic: state.isPublic
@@ -1779,9 +1790,11 @@ function createGenerationPayload() {
 
 // 执行带进度的生成动作
 async function runGeneratingAction(work) {
+  state.allowLatestHistoryPreviewSync = true;
   state.generatingMode = state.mode;
   state.generationStatus = "processing";
   state.queuePosition = null;
+  resetWorkbenchPreviewState({ keepHistorySync: true });
   state.progress = 12;
   render();
   const timer = setInterval(() => advanceProgress(), 700);
@@ -1805,6 +1818,14 @@ async function runGeneratingAction(work) {
 function advanceProgress() {
   state.progress = Math.min(92, state.progress + 9);
   updateGenerationVisualState();
+}
+
+// 重置工作台预览，按需保留历史回填权限
+function resetWorkbenchPreviewState(options = {}) {
+  state.generatedImages = [];
+  if (options.keepHistorySync) return;
+
+  state.allowLatestHistoryPreviewSync = false;
 }
 
 // 局部刷新生成进度，避免整页 render 重启动画和余额区域
@@ -1904,13 +1925,13 @@ function setSide(target) {
   if (target === "workspace-edit") {
     state.view = "workspace";
     state.mode = "image-prompt";
-    state.generatedImages = [];
+    resetWorkbenchPreviewState();
     state.referenceImage = "";
   } else {
     state.view = target;
     if (target === "workspace") {
       state.mode = "text-to-image";
-      state.generatedImages = [];
+      resetWorkbenchPreviewState();
       state.referenceImage = "";
     }
   }
@@ -2079,6 +2100,7 @@ function logout() {
   state.token = "";
   state.user = null;
   state.userMenuOpen = false;
+  resetWorkbenchPreviewState();
   state.view = "auth";
   persistCurrentView(state.view);
   render();

@@ -369,9 +369,10 @@ button {
 /* Workbench Grid */
 .workbench-grid {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: clamp(280px, 20vw, 340px) minmax(0, 1fr);
   gap: 26px;
   height: 100%;
+  min-height: 0;
 }
 
 /* Tool Panel */
@@ -384,6 +385,11 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   backdrop-filter: blur(18px);
 }
 
@@ -408,23 +414,11 @@ button {
   transition: all 0.2s ease;
 }
 
-.module-tabs .tab-btn {
-  cursor: default;
-  pointer-events: none;
-}
-
 .tab-btn.is-active {
   background: transparent;
   color: var(--primary);
   border-color: transparent;
   box-shadow: none;
-}
-
-.module-tabs .tab-btn::before {
-  content: "✧";
-  margin-right: 9px;
-  font-size: 20px;
-  line-height: 1;
 }
 
 .field {
@@ -748,6 +742,7 @@ input {
   box-shadow: 0 18px 52px rgba(72, 105, 166, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.86);
   padding: 34px;
   flex: 1;
+  overflow: hidden;
   backdrop-filter: blur(16px);
 }
 
@@ -3013,6 +3008,48 @@ input[type="range"]::-webkit-slider-thumb {
   transform: translateY(-2px);
 }
 
+@media (min-width: 1101px) and (max-height: 1120px) {
+  .workspace {
+    padding: 18px 22px;
+  }
+
+  .workbench-grid {
+    grid-template-columns: clamp(270px, 18vw, 330px) minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .tool-panel {
+    padding: 10px 16px 16px;
+    gap: 10px;
+  }
+
+  .tool-panel textarea {
+    min-height: 96px;
+    padding: 12px 14px;
+  }
+
+  .tool-panel select,
+  .tool-panel input {
+    height: 36px;
+  }
+
+  .tool-panel .chip {
+    height: 32px;
+  }
+
+  .tool-panel .toggle-field {
+    min-height: 34px;
+  }
+
+  .tool-panel .primary-btn {
+    min-height: 40px;
+  }
+
+  .preview-wrap {
+    padding: 22px;
+  }
+}
+
 /* Responsive */
 @media (max-width: 1100px) {
   body {
@@ -3386,12 +3423,6 @@ input[type="range"]::-webkit-slider-thumb {
     padding: 14px;
     gap: 12px;
     border-radius: 20px;
-  }
-
-  .module-tabs .tab-btn {
-    min-height: 36px;
-    justify-content: flex-start;
-    font-size: 16px;
   }
 
   .field {

@@ -21,7 +21,7 @@ export class RemoteImageClient {
       () => this.#createJsonRequest(request)
     );
 
-    return this.#extractImages(payload);
+    return this.#extractImages(payload, request.outputFormat);
   }
 
   // 调用图文生图接口并返回标准化 base64 图片数组
@@ -32,7 +32,7 @@ export class RemoteImageClient {
       () => this.#createFormRequest(this.#createEditFormData(request))
     );
 
-    return this.#extractImages(payload);
+    return this.#extractImages(payload, request.outputFormat);
   }
 
   // 请求远端图片接口，统一处理超时、日志和短重试
@@ -77,14 +77,21 @@ export class RemoteImageClient {
         "Authorization": `Bearer ${this.config.key}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        model: this.#resolveRemoteModel(request.modelName),
-        prompt: request.prompt,
-        n: request.quantity,
-        size: this.#resolveImageSize(request.ratio),
-        response_format: "b64_json"
-      })
+      body: JSON.stringify(this.#createJsonPayload(request))
     };
+  }
+
+  // 创建文生图 JSON 请求体，集中透传上游支持的图片参数
+  #createJsonPayload(request) {
+    return this.#withCompressionParameter({
+      model: this.#resolveRemoteModel(request.modelName),
+      prompt: request.prompt,
+      n: request.quantity,
+      size: this.#resolveImageSize(request.ratio),
+      quality: this.#resolveImageQuality(request.quality),
+      output_format: this.#resolveOutputFormat(request.outputFormat),
+      response_format: "b64_json"
+    }, request);
   }
 
   // 带超时信号调用 fetch，避免上游卡死拖住业务请求
@@ -117,8 +124,11 @@ export class RemoteImageClient {
     formData.set("prompt", request.prompt);
     formData.set("n", String(request.quantity));
     formData.set("size", this.#resolveImageSize(request.ratio));
+    formData.set("quality", this.#resolveImageQuality(request.quality));
+    formData.set("output_format", this.#resolveOutputFormat(request.outputFormat));
     formData.set("response_format", "b64_json");
     formData.set("image", imageFile.blob, request.referenceImageName || "reference.png");
+    this.#appendCompressionFormField(formData, request);
 
     return formData;
   }
@@ -136,19 +146,20 @@ export class RemoteImageClient {
   }
 
   // 从不同兼容格式中提取 base64 图片
-  #extractImages(payload) {
+  #extractImages(payload, outputFormat) {
     const items = Array.isArray(payload.data) ? payload.data : [];
     const images = items.map((item) => item.b64_json ?? item.base64 ?? item.image).filter(Boolean);
+    const mimeType = this.#resolveOutputMimeType(outputFormat);
 
     if (images.length === 0 && typeof payload.b64_json === "string") {
-      return [payload.b64_json];
+      return [normalizeBase64Image(payload.b64_json, mimeType)];
     }
 
     if (images.length === 0) {
       throw new Error("图片接口未返回 base64 图片");
     }
 
-    return images.map((base64) => normalizeBase64Image(base64));
+    return images.map((base64) => normalizeBase64Image(base64, mimeType));
   }
 
   // 根据画幅比例映射远端 API size 参数
@@ -171,6 +182,60 @@ export class RemoteImageClient {
     }
 
     return this.config.model;
+  }
+
+  // 解析上游图片质量参数，非法值回退为 auto
+  #resolveImageQuality(quality) {
+    const normalizedQuality = String(quality ?? "auto").trim().toLowerCase();
+    const qualities = new Set(["low", "medium", "high", "auto"]);
+
+    return qualities.has(normalizedQuality) ? normalizedQuality : "auto";
+  }
+
+  // 解析上游输出格式参数，非法值回退为 png
+  #resolveOutputFormat(outputFormat) {
+    const normalizedFormat = String(outputFormat ?? "png").trim().toLowerCase();
+    const formats = new Set(["png", "jpeg", "webp"]);
+
+    return formats.has(normalizedFormat) ? normalizedFormat : "png";
+  }
+
+  // 为 JSON 请求体按需追加 JPEG/WebP 压缩等级
+  #withCompressionParameter(payload, request) {
+    if (!this.#supportsCompression(request.outputFormat)) return payload;
+
+    return { ...payload, output_compression: this.#resolveOutputCompression(request.outputCompression) };
+  }
+
+  // 为 multipart 请求体按需追加 JPEG/WebP 压缩等级
+  #appendCompressionFormField(formData, request) {
+    if (!this.#supportsCompression(request.outputFormat)) return;
+
+    formData.set("output_compression", String(this.#resolveOutputCompression(request.outputCompression)));
+  }
+
+  // 判断当前输出格式是否支持压缩等级
+  #supportsCompression(outputFormat) {
+    return ["jpeg", "webp"].includes(this.#resolveOutputFormat(outputFormat));
+  }
+
+  // 解析压缩等级，限制在 0 到 100 区间
+  #resolveOutputCompression(outputCompression) {
+    const compression = Number(outputCompression ?? 100);
+
+    if (!Number.isFinite(compression)) return 100;
+    return Math.min(100, Math.max(0, Math.round(compression)));
+  }
+
+  // 根据输出格式选择 data URL 的 MIME 类型
+  #resolveOutputMimeType(outputFormat) {
+    const mimeTypes = {
+      jpeg: "image/jpeg",
+      png: "image/png",
+      webp: "image/webp"
+    };
+
+    return mimeTypes[this.#resolveOutputFormat(outputFormat)] ?? DEFAULT_IMAGE_MIME;
   }
 
   // 校验上游地址是否配置，避免空 URL 变成迷惑性 fetch 错误
@@ -311,10 +376,10 @@ function parseDataUrlImage(dataUrl) {
 }
 
 // 标准化 base64 图片，前端统一可直接作为 data URL 渲染
-function normalizeBase64Image(value) {
+function normalizeBase64Image(value, mimeType = DEFAULT_IMAGE_MIME) {
   if (String(value).startsWith("data:image/")) {
     return value;
   }
 
-  return `data:${DEFAULT_IMAGE_MIME};base64,${value}`;
+  return `data:${mimeType};base64,${value}`;
 }

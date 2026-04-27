@@ -20,6 +20,8 @@ test("public app defaults to one square image and ten credits per generation", a
   assert.match(source, /ratio:\s*"1:1"/);
   assert.doesNotMatch(source, /ratio:\s*"4:3"/);
   assert.match(source, /quantity:\s*1/);
+  assert.match(source, /renderChips\("quantity", \[1, 2\]\)/);
+  assert.doesNotMatch(source, /renderChips\("quantity", \[1, 2, 4\]\)/);
   assert.match(source, /const unit = 10;/);
   assert.match(source, /const resolution = getResolution\(ratio\);/);
 });
@@ -109,8 +111,9 @@ test("my gallery shows current user public items and can remove gallery flag", a
 test("workbench mode is only switched from sidebar navigation", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
-  assert.match(source, /renderCurrentModuleTab\(\)/);
-  assert.match(source, /currentModuleLabel\(\)/);
+  assert.doesNotMatch(source, /renderCurrentModuleTab\(\)/);
+  assert.doesNotMatch(source, /currentModuleLabel\(\)/);
+  assert.doesNotMatch(source, /module-tabs/);
   assert.doesNotMatch(source, /data-mode=/);
   assert.doesNotMatch(source, /event\.target\.closest\("\[data-mode\]"\)/);
 });
@@ -184,6 +187,42 @@ test("generation progress bar uses energetic layered motion", async () => {
   assert.match(styleSource, /prefers-reduced-motion: reduce[\s\S]*\.progress-bar-energy::before/);
 });
 
+test("generation panel exposes image quality and compression controls", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /outputQuality:\s*"auto"/);
+  assert.match(source, /outputFormat:\s*"png"/);
+  assert.match(source, /outputCompression:\s*100/);
+  assert.match(source, /renderSelect\("outputQuality", \["auto", "low", "medium", "high"\]\)/);
+  assert.match(source, /renderSelect\("outputFormat", \["png", "jpeg", "webp"\]\)/);
+  assert.match(source, /data-slider="outputCompression"/);
+  assert.match(source, /quality: state\.outputQuality/);
+  assert.match(source, /outputFormat: state\.outputFormat/);
+  assert.match(source, /outputCompression: state\.outputCompression/);
+});
+
+test("generation panel removes realtime preview controls and stream payload", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.doesNotMatch(source, /realtimePreview:\s*false/);
+  assert.doesNotMatch(source, /partialImages:\s*2/);
+  assert.doesNotMatch(source, /data-toggle="realtimePreview"/);
+  assert.doesNotMatch(source, /renderPartialImagesField\(\)/);
+  assert.doesNotMatch(source, /data-slider="partialImages"/);
+  assert.doesNotMatch(source, /stream: state\.realtimePreview/);
+  assert.doesNotMatch(source, /partialImages: state\.realtimePreview \? state\.partialImages : 0/);
+  assert.doesNotMatch(source, /syncGeneratedImagesFromRunningHistory\(\)/);
+});
+
+test("desktop workbench keeps dense generation controls inside the viewport", async () => {
+  const source = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /\.workbench-grid \{[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;/);
+  assert.match(source, /\.tool-panel \{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?scrollbar-gutter:\s*stable;/);
+  assert.match(source, /\.preview-wrap \{[\s\S]*?overflow:\s*hidden;/);
+  assert.match(source, /@media \(min-width: 1101px\) and \(max-height: 1120px\)/);
+});
+
 test("generation submit applies queue status and refreshes data", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
@@ -216,6 +255,14 @@ test("generation polling skips wallet refresh and keeps active aura mounted", as
   assert.match(source, /if \(shouldPatchActiveGeneration\(previousGeneratingMode\)\) \{[\s\S]*updateGenerationVisualState\(\);[\s\S]*return;/);
   assert.doesNotMatch(refreshStatusBlock, /refreshWallet\(/);
   assert.doesNotMatch(source, /setTimeout\(async \(\) => \{\s*await refreshData\(\);\s*\}, GENERATION_STATUS_REFRESH_MS\)/);
+});
+
+test("history refresh only restores workbench preview after an in-session generation flow", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /allowLatestHistoryPreviewSync:\s*false/);
+  assert.match(source, /state\.allowLatestHistoryPreviewSync = true;/);
+  assert.match(source, /if \(!state\.allowLatestHistoryPreviewSync\) return;/);
 });
 
 test("generation submit applies returned balance without wallet loading refresh", async () => {

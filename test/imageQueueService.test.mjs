@@ -37,6 +37,18 @@ test("ImageService refunds precharged credits when remote generation fails", asy
   assert.deepEqual(dependencies.walletService.refunds, [{ userId: 7, generationId: 21, costCents: 10, message: "upstream failed" }]);
 });
 
+test("ImageService ignores removed realtime preview fields", async () => {
+  const dependencies = createQueueDependencies({ processingCount: 1 });
+  const service = createQueueImageService(dependencies);
+
+  await service.createTextImages(7, createTextGenerationInput({ stream: true, partialImages: 1 }));
+  await waitForQueueSettled();
+
+  assert.equal(dependencies.remoteImageClient.textCalls[0].stream, undefined);
+  assert.equal(dependencies.remoteImageClient.textCalls[0].partialImages, undefined);
+  assert.deepEqual(dependencies.generationRepository.succeededIds, [21]);
+});
+
 // 创建带队列依赖的图片服务，隔离并发调度测试装配
 function createQueueImageService(dependencies) {
   return new ImageService({
@@ -68,13 +80,14 @@ async function waitForQueueSettled() {
 }
 
 // 创建文生图输入对象，避免测试重复铺参数
-function createTextGenerationInput() {
+function createTextGenerationInput(overrides = {}) {
   return {
     prompt: "a neon product photo",
     modelName: "Kimo Image",
     ratio: "1:1",
     quantity: 1,
-    isPublic: false
+    isPublic: false,
+    ...overrides
   };
 }
 
@@ -150,7 +163,9 @@ class MemoryRemoteImageClient {
 
 class MemoryImageStorageService {
   // 保存测试生成图片并返回路径
-  async saveGenerationImages() {
-    return ["/generated-images/user-7/generation-21/image-1.png"];
+  async saveGenerationImages(input) {
+    const prefix = input.partial ? "partial" : "image";
+
+    return input.images.map((_, index) => `/generated-images/user-${input.userId}/generation-${input.generationId}/${prefix}-${index + 1}.png`);
   }
 }

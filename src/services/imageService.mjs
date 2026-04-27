@@ -94,6 +94,9 @@ export class ImageService {
       styleName: request.style,
       ratio: request.ratio,
       quantity: request.quantity,
+      quality: request.quality,
+      outputFormat: request.outputFormat,
+      outputCompression: request.outputCompression,
       costCents: cost.toCents(),
       isPublic: request.isPublic,
       referenceImageName: request.imageName
