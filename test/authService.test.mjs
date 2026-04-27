@@ -5,7 +5,6 @@ import { AuthService, Credentials } from "../src/services/authService.mjs";
 import { hashPassword } from "../src/security/passwords.mjs";
 
 const SIGNUP_CREDIT_CENTS = 10;
-
 test("AuthService logs in with email payload from the auth form", async () => {
   const passwordHash = hashPassword("secret123");
   const userRepository = new MemoryUserRepository({
