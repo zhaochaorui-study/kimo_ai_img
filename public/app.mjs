@@ -17,6 +17,8 @@ const state = {
   selectedMyGalleryId: null,
   generatedImages: [],
   generatingMode: "",
+  generationStatus: "",
+  queuePosition: null,
   progress: 0,
   toast: "",
   toastType: "",
@@ -53,7 +55,9 @@ const LOADING_SCOPE_WALLET = "wallet";
 const LOADING_SCOPE_GALLERY = "gallery";
 const LOADING_SCOPE_MY_GALLERY = "my-gallery";
 const LOADING_SCOPE_HISTORY = "history";
+const GENERATION_STATUS_REFRESH_MS = 2500;
 const loadingJobs = new Map();
+let generationStatusTimer = null;
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -123,6 +127,7 @@ async function refreshData() {
     await refreshPublicGallery();
   }
   render();
+  scheduleGenerationStatusRefresh();
 }
 
 // 刷新钱包余额
@@ -151,10 +156,49 @@ function syncGeneratingStateFromHistory() {
   const running = state.history.find((item) => item.status === "pending" || item.status === "processing");
   if (running) {
     state.generatingMode = running.mode;
-    state.progress = 48;
-  } else {
-    state.generatingMode = "";
+    state.generationStatus = running.status;
+    state.queuePosition = running.queuePosition ?? null;
+    state.progress = running.status === "pending" ? 12 : Math.max(48, state.progress);
+    return;
   }
+
+  state.generatingMode = "";
+  state.generationStatus = "";
+  state.queuePosition = null;
+  syncGeneratedImagesFromLatestHistory();
+}
+
+// 从最新成功历史同步预览图，让异步队列完成后工作台自动展示结果
+function syncGeneratedImagesFromLatestHistory() {
+  const latestSucceeded = state.history.find((item) => item.status === "succeeded" && item.images?.length);
+
+  if (latestSucceeded) {
+    state.generatedImages = latestSucceeded.images;
+  }
+}
+
+// 安排生成状态刷新，持续更新排队位次和完成状态
+function scheduleGenerationStatusRefresh() {
+  clearGenerationStatusRefresh();
+
+  if (!state.user || !hasActiveGeneration()) return;
+
+  generationStatusTimer = setTimeout(async () => {
+    await refreshData();
+  }, GENERATION_STATUS_REFRESH_MS);
+}
+
+// 清理生成状态刷新定时器，避免重复轮询
+function clearGenerationStatusRefresh() {
+  if (!generationStatusTimer) return;
+
+  clearTimeout(generationStatusTimer);
+  generationStatusTimer = null;
+}
+
+// 判断当前用户是否存在排队或处理中的生成任务
+function hasActiveGeneration() {
+  return Boolean(state.generatingMode);
 }
 
 // 刷新当前用户已加入公共画廊的图片
@@ -548,10 +592,18 @@ function renderPromptPanel() {
         <label>加入公共画廊</label>
         <div class="toggle-switch ${state.isPublic ? "is-on" : ""}" data-toggle="isPublic"></div>
       </div>
-      <button class="primary-btn" data-action="generate" ${state.generatingMode === state.mode || !state.user ? "disabled" : ""}>${state.generatingMode === state.mode ? "生成中..." : state.user ? "开始生成" : "请登录后生成"}</button>
+      <button class="primary-btn" data-action="generate" ${hasActiveGeneration() || !state.user ? "disabled" : ""}>${renderGenerateButtonText()}</button>
       <div class="cost">预计消耗 ${calculateCostCents()} 积分</div>
     </aside>
   `;
+}
+
+// 渲染生成按钮文案，根据队列状态给出当前任务反馈
+function renderGenerateButtonText() {
+  if (!state.user) return "请登录后生成";
+  if (state.generationStatus === "pending") return "排队中...";
+  if (hasActiveGeneration()) return "生成中...";
+  return "开始生成";
 }
 
 // 渲染当前模块标识，模块切换统一交给左侧导航
@@ -783,11 +835,25 @@ function renderGeneratingPreview() {
         <span></span>
       </div>
       <div class="generation-status">
-        <strong>正在生成</strong>
-        <span data-generation-progress>${Math.max(1, Math.round(state.progress))}%</span>
+        <strong>${renderGenerationStatusTitle()}</strong>
+        <span data-generation-progress>${renderGenerationStatusDetail()}</span>
       </div>
     </div>
   `;
+}
+
+// 渲染生成状态标题，区分排队和处理中
+function renderGenerationStatusTitle() {
+  return state.generationStatus === "pending" ? "排队中" : "正在生成";
+}
+
+// 渲染生成状态细节，排队时展示位次，处理中展示进度
+function renderGenerationStatusDetail() {
+  if (state.generationStatus === "pending" && state.queuePosition) {
+    return `第 ${state.queuePosition} 位`;
+  }
+
+  return `${Math.max(1, Math.round(state.progress))}%`;
 }
 
 // 渲染图片标签，统一开启懒加载和异步解码，支持点击放大
@@ -828,8 +894,8 @@ function renderThumb(image, index) {
 function renderProgress() {
   return `
     <div class="progress-area">
-      <strong>${state.generatingMode === state.mode ? "生成中..." : "等待生成"}</strong>
-      <span data-generation-progress style="float:right">${state.progress}%</span>
+      <strong>${hasActiveGeneration() ? renderGenerationStatusTitle() : "等待生成"}</strong>
+      <span data-generation-progress style="float:right">${hasActiveGeneration() ? renderGenerationStatusDetail() : `${state.progress}%`}</span>
       <div class="progress-track"><div data-generation-progress-bar class="progress-bar" style="--progress:${state.progress}%"></div></div>
       <p class="empty-state">预计消耗 ${calculateCostCents()} 积分</p>
     </div>
@@ -1490,16 +1556,36 @@ async function generateImage() {
   }
 
   try {
-    await runGeneratingAction(async () => {
+    const payload = await runGeneratingAction(async () => {
       const path = state.mode === "image-prompt" ? "/api/images/edits" : "/api/images/generations";
-      const payload = await api(path, { method: "POST", body: JSON.stringify(createGenerationPayload()) });
-      state.generatedImages = payload.images;
+      return api(path, { method: "POST", body: JSON.stringify(createGenerationPayload()) });
     });
+    applyGenerationQueueState(payload);
     await refreshData();
-    showToast("生成成功！图片已保存到历史", "success");
+    showGenerationQueueToast(payload);
   } catch (error) {
     showToast(error.message || "生成失败，请稍后重试", "error");
   }
+}
+
+// 应用生成提交返回的队列状态，驱动排队和处理中反馈
+function applyGenerationQueueState(payload) {
+  state.generationStatus = payload.status ?? "";
+  state.queuePosition = payload.queuePosition ?? null;
+
+  if (payload.images?.length) {
+    state.generatedImages = payload.images;
+  }
+}
+
+// 展示生成提交后的队列提示
+function showGenerationQueueToast(payload) {
+  if (payload.status === "pending") {
+    showToast(`已加入队列，当前第 ${payload.queuePosition} 位`, "success");
+    return;
+  }
+
+  showToast("已开始生成，完成后会自动刷新", "success");
 }
 
 // 创建图片生成请求体
@@ -1518,22 +1604,23 @@ function createGenerationPayload() {
 // 执行带进度的生成动作
 async function runGeneratingAction(work) {
   state.generatingMode = state.mode;
+  state.generationStatus = "processing";
+  state.queuePosition = null;
   state.progress = 12;
   render();
   const timer = setInterval(() => advanceProgress(), 700);
 
   try {
     const result = await work();
-    state.progress = 100;
-    // 调用局部进度更新函数，避免生成动画在完成瞬间被重建
-    updateGenerationProgress();
     return result;
   } catch (error) {
     state.progress = 0;
+    state.generationStatus = "";
+    state.queuePosition = null;
+    state.generatingMode = "";
     throw error;
   } finally {
     clearInterval(timer);
-    state.generatingMode = "";
     render();
   }
 }

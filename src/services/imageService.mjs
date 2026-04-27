@@ -1,6 +1,8 @@
 import { BillingAction, CreditAmount, PricingPolicy } from "../domain/billing.mjs";
 import { GenerationMode, GenerationRequest } from "../generation.mjs";
 
+const DEFAULT_MAX_CONCURRENT_GENERATIONS = 2;
+
 // 图片生成服务，串联扣费、远端调用、历史落库和失败退款
 export class ImageService {
   constructor(input) {
@@ -12,28 +14,19 @@ export class ImageService {
       textToImageUnitCost: CreditAmount.fromCents(input.textToImageUnitCostCents),
       imageEditUnitCost: CreditAmount.fromCents(input.imageEditUnitCostCents)
     });
+    this.maxConcurrentGenerations = input.maxConcurrentGenerations ?? DEFAULT_MAX_CONCURRENT_GENERATIONS;
+    this.queuedGenerations = new Map();
+    this.dispatchingQueue = false;
   }
 
-  // 执行文生图任务
+  // 创建文生图任务并交给全局队列调度
   async createTextImages(userId, input) {
-    await this.#assertNoRunningGeneration(userId);
-    const request = this.#createGenerationRequest(GenerationMode.TextToImage, input);
-    const generation = this.#createGenerationRecord(userId, request);
-    const charge = await this.walletService.spendAndCreateGeneration(userId, generation);
-    await this.generationRepository.markProcessing(charge.generationId);
-
-    return this.#completeRemoteGeneration(userId, charge.generationId, generation, request);
+    return this.#queueGeneration(userId, GenerationMode.TextToImage, input);
   }
 
-  // 执行图文生图任务
+  // 创建图文生图任务并交给全局队列调度
   async createImageEdits(userId, input) {
-    await this.#assertNoRunningGeneration(userId);
-    const request = this.#createGenerationRequest(GenerationMode.ImagePrompt, input);
-    const generation = this.#createGenerationRecord(userId, request);
-    const charge = await this.walletService.spendAndCreateGeneration(userId, generation);
-    await this.generationRepository.markProcessing(charge.generationId);
-
-    return this.#completeRemoteEdit(userId, charge.generationId, generation, request, input);
+    return this.#queueGeneration(userId, GenerationMode.ImagePrompt, input);
   }
 
   // 查询用户生成历史
@@ -104,6 +97,109 @@ export class ImageService {
       costCents: cost.toCents(),
       isPublic: request.isPublic,
       referenceImageName: request.imageName
+    };
+  }
+
+  // 创建待处理生成任务，并返回当前队列状态
+  async #queueGeneration(userId, mode, input) {
+    await this.#assertNoRunningGeneration(userId);
+
+    const request = this.#createGenerationRequest(mode, input);
+    const generation = this.#createGenerationRecord(userId, request);
+    const charge = await this.walletService.spendAndCreateGeneration(userId, generation);
+
+    this.#rememberQueuedGeneration(charge.generationId, { userId, generation, request, input });
+
+    // 调用队列调度器，尽快把有容量的任务推进到处理中
+    const startedIds = await this.#dispatchQueuedGenerations();
+
+    return this.#createQueuePayload(charge.generationId, startedIds);
+  }
+
+  // 暂存队列任务上下文，保留图文生图的参考图数据用于后台消费
+  #rememberQueuedGeneration(generationId, queuedGeneration) {
+    this.queuedGenerations.set(generationId, queuedGeneration);
+  }
+
+  // 调度待处理任务，保证全局同时处理数量不超过配置上限
+  async #dispatchQueuedGenerations() {
+    if (this.dispatchingQueue) return new Set();
+
+    this.dispatchingQueue = true;
+    const startedIds = new Set();
+
+    try {
+      await this.#startQueuedGenerations(startedIds);
+      return startedIds;
+    } finally {
+      this.dispatchingQueue = false;
+    }
+  }
+
+  // 按入队顺序启动有容量的任务
+  async #startQueuedGenerations(startedIds) {
+    let availableSlots = await this.#countAvailableSlots();
+
+    for (const [generationId, queuedGeneration] of this.queuedGenerations) {
+      if (availableSlots <= 0) return;
+
+      // 调用状态流转，只有仍处于 pending 的任务才允许进入处理
+      const started = await this.generationRepository.markProcessing(generationId);
+      if (!started) continue;
+
+      startedIds.add(generationId);
+      availableSlots -= 1;
+      this.#processQueuedGeneration(generationId, queuedGeneration);
+    }
+  }
+
+  // 计算当前可用处理槽位
+  async #countAvailableSlots() {
+    const processingCount = await this.generationRepository.countProcessing();
+    return Math.max(0, this.maxConcurrentGenerations - processingCount);
+  }
+
+  // 后台执行已进入 processing 的生成任务，完成后继续唤醒队列
+  #processQueuedGeneration(generationId, queuedGeneration) {
+    this.#runQueuedGeneration(generationId, queuedGeneration)
+      .catch(() => {})
+      .finally(() => {
+        this.queuedGenerations.delete(generationId);
+        this.#dispatchQueuedGenerations();
+      });
+  }
+
+  // 执行单个队列任务，根据生成模式选择远端调用
+  async #runQueuedGeneration(generationId, queuedGeneration) {
+    if (queuedGeneration.request.mode === GenerationMode.ImagePrompt) {
+      await this.#completeRemoteEdit(
+        queuedGeneration.userId,
+        generationId,
+        queuedGeneration.generation,
+        queuedGeneration.request,
+        queuedGeneration.input
+      );
+      return;
+    }
+
+    await this.#completeRemoteGeneration(
+      queuedGeneration.userId,
+      generationId,
+      queuedGeneration.generation,
+      queuedGeneration.request
+    );
+  }
+
+  // 创建生成提交后的队列响应
+  async #createQueuePayload(generationId, startedIds) {
+    if (startedIds.has(generationId)) {
+      return { generationId, status: "processing", queuePosition: null };
+    }
+
+    return {
+      generationId,
+      status: "pending",
+      queuePosition: await this.generationRepository.countPendingBefore(generationId)
     };
   }
 

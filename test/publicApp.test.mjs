@@ -165,10 +165,23 @@ test("generation progress updates do not remount the whole app", async () => {
   assert.doesNotMatch(source, /function advanceProgress\(\) \{\s*state\.progress = Math\.min\(92, state\.progress \+ 9\);\s*render\(\);\s*\}/);
 });
 
-test("generation refreshes wallet data after leaving the active generation state", async () => {
+test("generation submit applies queue status and refreshes data", async () => {
   const source = await readFile(PUBLIC_APP_PATH, "utf8");
 
-  assert.match(source, /await runGeneratingAction\(async \(\) => \{\s*const path = state\.mode === "image-prompt" \? "\/api\/images\/edits" : "\/api\/images\/generations";\s*const payload = await api\(path, \{ method: "POST", body: JSON\.stringify\(createGenerationPayload\(\)\) \}\);\s*state\.generatedImages = payload\.images;\s*\}\);\s*await refreshData\(\);/);
+  assert.match(source, /const payload = await runGeneratingAction\(async \(\) => \{/);
+  assert.match(source, /applyGenerationQueueState\(payload\);/);
+  assert.match(source, /await refreshData\(\);/);
+  assert.match(source, /showGenerationQueueToast\(payload\);/);
+});
+
+test("generation queue position is refreshed while a task is active", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+
+  assert.match(source, /const GENERATION_STATUS_REFRESH_MS = 2500;/);
+  assert.match(source, /function scheduleGenerationStatusRefresh\(\)/);
+  assert.match(source, /setTimeout\(async \(\) => \{\s*await refreshData\(\);\s*\}, GENERATION_STATUS_REFRESH_MS\)/);
+  assert.match(source, /state\.queuePosition = running\.queuePosition \?\? null;/);
+  assert.match(source, /第 \$\{state\.queuePosition\} 位/);
 });
 
 test("compare reference card shows the uploaded reference image", async () => {

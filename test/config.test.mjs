@@ -98,6 +98,12 @@ test("createAppConfig keeps default signup credit at thirty credits and generati
   assert.equal(appConfig.imageEditUnitCostCents, 10);
 });
 
+test("createAppConfig keeps global generation concurrency at two by default", () => {
+  const appConfig = createAppConfig(Object.freeze({}));
+
+  assert.equal(appConfig.maxConcurrentGenerations, 2);
+});
+
 test("createAppConfig uses local Redis as default session storage", () => {
   const appConfig = createAppConfig(Object.freeze({}));
 

@@ -74,7 +74,8 @@ async function createServices(pool, redisClient) {
       remoteImageClient: new RemoteImageClient(APP_CONFIG.imageApi),
       imageStorageService,
       textToImageUnitCostCents: APP_CONFIG.textToImageUnitCostCents,
-      imageEditUnitCostCents: APP_CONFIG.imageEditUnitCostCents
+      imageEditUnitCostCents: APP_CONFIG.imageEditUnitCostCents,
+      maxConcurrentGenerations: APP_CONFIG.maxConcurrentGenerations
     }),
     imageStorageService,
     sessionStore

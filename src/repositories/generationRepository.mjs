@@ -17,12 +17,33 @@ export class GenerationRepository {
     return Number(result.insertId);
   }
 
-  // 标记生成记录为处理中
+  // 标记生成记录为处理中，仅允许 pending 任务进入处理
   async markProcessing(generationId) {
-    await this.pool.execute(
-      "UPDATE generations SET status = 'processing' WHERE id = ?",
+    const [result] = await this.pool.execute(
+      "UPDATE generations SET status = 'processing' WHERE id = ? AND status = 'pending'",
       [generationId]
     );
+
+    return result.affectedRows > 0;
+  }
+
+  // 统计全局正在处理的生成任务数量
+  async countProcessing() {
+    const [rows] = await this.pool.execute(
+      "SELECT COUNT(*) AS total FROM generations WHERE status = 'processing'"
+    );
+
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  // 统计指定 pending 任务当前排队位次，包含自身
+  async countPendingBefore(generationId) {
+    const [rows] = await this.pool.execute(
+      "SELECT COUNT(*) AS total FROM generations WHERE status = 'pending' AND id <= ?",
+      [generationId]
+    );
+
+    return Number(rows[0]?.total ?? 0);
   }
 
   // 标记生成记录成功，并保存服务器相对图片路径
@@ -54,7 +75,17 @@ export class GenerationRepository {
   async listByUser(userId, limit = 60) {
     const safeLimit = normalizeLimit(limit);
     const [rows] = await this.pool.execute(
-      `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT ${safeLimit}`,
+      `SELECT g.*,
+       CASE
+         WHEN g.status = 'pending' THEN (
+           SELECT COUNT(*) FROM generations q WHERE q.status = 'pending' AND q.id <= g.id
+         )
+         ELSE NULL
+       END AS queue_position
+       FROM generations g
+       WHERE g.user_id = ?
+       ORDER BY g.created_at DESC
+       LIMIT ${safeLimit}`,
       [userId]
     );
 
@@ -153,6 +184,7 @@ export class GenerationRepository {
       quantity: row.quantity,
       costCents: row.cost_cents,
       status: row.status,
+      queuePosition: row.queue_position === null || row.queue_position === undefined ? null : Number(row.queue_position),
       isPublic: Boolean(row.is_public),
       referenceImageName: row.reference_image_name,
       images: parseImages(row.result_images),

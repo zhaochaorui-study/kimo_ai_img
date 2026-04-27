@@ -8,6 +8,7 @@ const LOCAL_ENV_FILE_PATH = join(PROJECT_ROOT, ".env");
 const DEFAULT_IMAGE_API_TIMEOUT_MS = 600000;
 const DEFAULT_SERVER_IMAGE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_SIGNUP_CREDIT_CENTS = 30;
+const DEFAULT_MAX_CONCURRENT_GENERATIONS = 2;
 
 // 创建应用配置，统一编排各模块配置来源
 export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
@@ -16,6 +17,7 @@ export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
     signupCreditCents: readConfigNumber(runtimeEnv, "SIGNUP_CREDIT_CENTS", DEFAULT_SIGNUP_CREDIT_CENTS),
     textToImageUnitCostCents: readConfigNumber(runtimeEnv, "TEXT_TO_IMAGE_UNIT_COST_CENTS", 10),
     imageEditUnitCostCents: readConfigNumber(runtimeEnv, "IMAGE_EDIT_UNIT_COST_CENTS", 10),
+    maxConcurrentGenerations: readConfigNumber(runtimeEnv, "MAX_CONCURRENT_GENERATIONS", DEFAULT_MAX_CONCURRENT_GENERATIONS),
     rechargeContact: readConfigValue(runtimeEnv, "RECHARGE_CONTACT", "QQ1351491099"),
     sessionTtlSeconds: readConfigNumber(runtimeEnv, "SESSION_TTL_SECONDS", 7 * 24 * 60 * 60),
     database: createDatabaseConfig(runtimeEnv),
