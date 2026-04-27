@@ -1032,6 +1032,36 @@ input {
   font-weight: 700;
 }
 
+.generation-wait-hint {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: calc(50% + min(158px, 38%));
+  transform: translateX(-50%);
+  width: min(82%, 360px);
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid rgba(47, 120, 255, 0.18);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 12px 26px rgba(72, 105, 166, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.progress-area .generation-wait-hint {
+  position: static;
+  transform: none;
+  width: 100%;
+  margin-top: 12px;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
 @keyframes generationAura {
   0% {
     opacity: 0.72;

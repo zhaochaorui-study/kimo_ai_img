@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { AuthService, Credentials } from "../src/services/authService.mjs";
 import { hashPassword } from "../src/security/passwords.mjs";
 
-const SIGNUP_CREDIT_CENTS = 30;
+const SIGNUP_CREDIT_CENTS = 10;
 
 test("AuthService logs in with email payload from the auth form", async () => {
   const passwordHash = hashPassword("secret123");
@@ -79,7 +79,7 @@ test("AuthService stores register IP when creating user", async () => {
   assert.equal(userRepository.createdAccount.registerIp, "203.0.113.8");
 });
 
-test("AuthService gives new users thirty signup credits", async () => {
+test("AuthService gives new users ten signup credits", async () => {
   const userRepository = new MemoryUserRepository(null);
   const service = createRegisterAuthService({ userRepository });
 
@@ -94,7 +94,7 @@ test("AuthService gives new users thirty signup credits", async () => {
   assert.equal(userRepository.createdAccount.balanceCents, SIGNUP_CREDIT_CENTS);
   assert.equal(userRepository.createdTransaction.amountCents, SIGNUP_CREDIT_CENTS);
   assert.equal(userRepository.createdTransaction.balanceAfterCents, SIGNUP_CREDIT_CENTS);
-  assert.equal(userRepository.createdTransaction.memo, "注册赠送 30 积分");
+  assert.equal(userRepository.createdTransaction.memo, "注册赠送 10 积分");
 });
 
 test("AuthService maps duplicate register IP database errors to friendly message", async () => {

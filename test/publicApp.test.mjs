@@ -134,7 +134,10 @@ test("generating preview renders animated image aura", async () => {
   assert.match(appSource, /if \(state\.generatingMode === state\.mode\) return renderGeneratingPreview\(\);/);
   assert.match(appSource, /function renderGeneratingPreview\(\)/);
   assert.match(appSource, /class="image-generation-state"/);
+  assert.match(appSource, /预计等待约 2 分钟，请勿关闭或刷新页面/);
+  assert.match(appSource, /renderGenerationWaitHint\(\)/);
   assert.match(styleSource, /\.image-generation-state/);
+  assert.match(styleSource, /\.generation-wait-hint/);
   assert.match(styleSource, /@keyframes generationAura/);
   assert.match(styleSource, /@keyframes generationSweep/);
   assert.match(styleSource, /prefers-reduced-motion: reduce/);

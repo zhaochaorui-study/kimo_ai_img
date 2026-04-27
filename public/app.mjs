@@ -838,8 +838,14 @@ function renderGeneratingPreview() {
         <strong>${renderGenerationStatusTitle()}</strong>
         <span data-generation-progress>${renderGenerationStatusDetail()}</span>
       </div>
+      ${renderGenerationWaitHint()}
     </div>
   `;
+}
+
+// 渲染生成等待提示，任务完成前跟随生成区域持续显示
+function renderGenerationWaitHint() {
+  return `<p class="generation-wait-hint">预计等待约 2 分钟，请勿关闭或刷新页面</p>`;
 }
 
 // 渲染生成状态标题，区分排队和处理中
@@ -898,6 +904,7 @@ function renderProgress() {
       <span data-generation-progress style="float:right">${hasActiveGeneration() ? renderGenerationStatusDetail() : `${state.progress}%`}</span>
       <div class="progress-track"><div data-generation-progress-bar class="progress-bar" style="--progress:${state.progress}%"></div></div>
       <p class="empty-state">预计消耗 ${calculateCostCents()} 积分</p>
+      ${hasActiveGeneration() ? renderGenerationWaitHint() : ""}
     </div>
   `;
 }
