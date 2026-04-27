@@ -137,8 +137,13 @@ export class AuthService {
       type: WalletTransactionType.SignupGift,
       amountCents: this.signupCreditCents,
       balanceAfterCents: this.signupCreditCents,
-      memo: "注册赠送 50 积分"
+      memo: this.#createSignupGiftMemo()
     });
+  }
+
+  // 创建注册送积分流水文案，确保文案与配置额度一致
+  #createSignupGiftMemo() {
+    return `注册赠送 ${this.signupCreditCents} 积分`;
   }
 
   // 创建登录成功返回体

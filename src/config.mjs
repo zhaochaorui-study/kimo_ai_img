@@ -7,12 +7,13 @@ const PROJECT_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LOCAL_ENV_FILE_PATH = join(PROJECT_ROOT, ".env");
 const DEFAULT_IMAGE_API_TIMEOUT_MS = 600000;
 const DEFAULT_SERVER_IMAGE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024;
+const DEFAULT_SIGNUP_CREDIT_CENTS = 30;
 
 // 创建应用配置，统一编排各模块配置来源
 export function createAppConfig(runtimeEnv = createConfigEnvironment()) {
   return Object.freeze({
     port: readConfigNumber(runtimeEnv, "PORT", 4173),
-    signupCreditCents: readConfigNumber(runtimeEnv, "SIGNUP_CREDIT_CENTS", 50),
+    signupCreditCents: readConfigNumber(runtimeEnv, "SIGNUP_CREDIT_CENTS", DEFAULT_SIGNUP_CREDIT_CENTS),
     textToImageUnitCostCents: readConfigNumber(runtimeEnv, "TEXT_TO_IMAGE_UNIT_COST_CENTS", 10),
     imageEditUnitCostCents: readConfigNumber(runtimeEnv, "IMAGE_EDIT_UNIT_COST_CENTS", 10),
     rechargeContact: readConfigValue(runtimeEnv, "RECHARGE_CONTACT", "QQ1351491099"),

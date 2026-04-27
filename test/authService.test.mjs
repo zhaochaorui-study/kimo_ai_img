@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { AuthService, Credentials } from "../src/services/authService.mjs";
 import { hashPassword } from "../src/security/passwords.mjs";
 
+const SIGNUP_CREDIT_CENTS = 30;
+
 test("AuthService logs in with email payload from the auth form", async () => {
   const passwordHash = hashPassword("secret123");
   const userRepository = new MemoryUserRepository({
@@ -12,7 +14,7 @@ test("AuthService logs in with email payload from the auth form", async () => {
     email: "user@example.com",
     password_hash: passwordHash.hash,
     password_salt: passwordHash.salt,
-    balance_cents: 50
+    balance_cents: SIGNUP_CREDIT_CENTS
   });
   const sessionStore = new MemorySessionStore();
   const service = new AuthService({
@@ -20,7 +22,7 @@ test("AuthService logs in with email payload from the auth form", async () => {
     userRepository,
     sessionStore,
     verificationService: {},
-    signupCreditCents: 50
+    signupCreditCents: SIGNUP_CREDIT_CENTS
   });
 
   const result = await service.login(new Credentials({
@@ -77,6 +79,24 @@ test("AuthService stores register IP when creating user", async () => {
   assert.equal(userRepository.createdAccount.registerIp, "203.0.113.8");
 });
 
+test("AuthService gives new users thirty signup credits", async () => {
+  const userRepository = new MemoryUserRepository(null);
+  const service = createRegisterAuthService({ userRepository });
+
+  const result = await service.register(new Credentials({
+    email: "user@qq.com",
+    password: "secret123",
+    verificationCode: "123456",
+    registerIp: "203.0.113.8"
+  }));
+
+  assert.equal(result.user.balanceCents, SIGNUP_CREDIT_CENTS);
+  assert.equal(userRepository.createdAccount.balanceCents, SIGNUP_CREDIT_CENTS);
+  assert.equal(userRepository.createdTransaction.amountCents, SIGNUP_CREDIT_CENTS);
+  assert.equal(userRepository.createdTransaction.balanceAfterCents, SIGNUP_CREDIT_CENTS);
+  assert.equal(userRepository.createdTransaction.memo, "注册赠送 30 积分");
+});
+
 test("AuthService maps duplicate register IP database errors to friendly message", async () => {
   const userRepository = new MemoryUserRepository(null);
   userRepository.createUserError = new Error("Duplicate entry '203.0.113.8' for key 'idx_users_register_ip'");
@@ -119,7 +139,7 @@ function createRegisterAuthService(options = {}) {
     userRepository,
     sessionStore: new MemorySessionStore(),
     verificationService: new MemoryVerificationService(),
-    signupCreditCents: 50
+    signupCreditCents: SIGNUP_CREDIT_CENTS
   });
 }
 

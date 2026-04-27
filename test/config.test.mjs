@@ -90,10 +90,10 @@ test("createAppConfig exposes server upload size limits", () => {
   assert.equal(appConfig.server.imageUploadMaxBytes, 104857600);
 });
 
-test("createAppConfig keeps default signup credit and generation cost at ten credits", () => {
+test("createAppConfig keeps default signup credit at thirty credits and generation cost at ten credits", () => {
   const appConfig = createAppConfig(Object.freeze({}));
 
-  assert.equal(appConfig.signupCreditCents, 50);
+  assert.equal(appConfig.signupCreditCents, 30);
   assert.equal(appConfig.textToImageUnitCostCents, 10);
   assert.equal(appConfig.imageEditUnitCostCents, 10);
 });
