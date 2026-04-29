@@ -7,10 +7,11 @@ const PUBLIC_STYLE_PATH = new URL("../public/styles.css", import.meta.url);
 const SERVER_PATH = new URL("../src/server.mjs", import.meta.url);
 
 // 提取单个 CSS 规则块，避免跨规则正则误判
-function extractCssRule(source, selector) {
+function extractCssRule(source, selector, { index = "last" } = {}) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const matches = [...source.matchAll(new RegExp(`${escapedSelector} \\{[^}]*\\}`, "g"))];
 
+  if (index === "first") return matches.at(0)?.[0] ?? "";
   return matches.at(-1)?.[0] ?? "";
 }
 
@@ -427,9 +428,10 @@ test("gallery cards update the detail panel on hover", async () => {
   assert.match(source, /panel\.replaceWith\(nextPanel\);/);
   assert.match(source, /panel\?\.classList\.remove\("content-fade-in"\);/);
   assert.doesNotMatch(source, /if \(selectPreviewItemFromCard\(previewCard\)\) render\(\);/);
-  assert.match(source, /data-preview-scope="gallery" data-preview-id="\$\{item\.id\}"/);
-  assert.match(source, /data-preview-scope="my-gallery" data-preview-id="\$\{item\.id\}"/);
-  assert.match(source, /data-preview-scope="history" data-preview-id="\$\{item\.id\}"/);
+  assert.match(source, /scope: "gallery"/);
+  assert.match(source, /scope: "my-gallery"/);
+  assert.match(source, /scope: "history"/);
+  assert.match(source, /data-preview-scope="\$\{options\.scope\}" data-preview-id="\$\{options\.item\.id\}"/);
 });
 
 test("data refreshes render fade-in loading states", async () => {
@@ -468,12 +470,68 @@ test("gallery image lists reveal cards progressively once per data load", async 
   assert.match(source, /function renderMyGalleryItem\(item, index = 0\)/);
   assert.match(source, /function renderHistoryGridItem\(item, index = 0\)/);
   assert.match(source, /class="gallery-item gallery-entry/);
-  assert.match(source, /style="\$\{createGalleryEntryStyle\(index\)\}"/);
+  assert.match(source, /style="\$\{createGalleryEntryStyle\(options\.index\)\}"/);
   assert.match(source, /function createGalleryEntryStyle\(index\)/);
   assert.match(styleSource, /\.gallery-grid\.is-revealing \.gallery-entry/);
   assert.match(styleSource, /animation-delay: calc\(var\(--gallery-index, 0\) \* 58ms\);/);
   assert.match(styleSource, /@keyframes galleryEntryReveal/);
   assert.match(styleSource, /prefers-reduced-motion: reduce[\s\S]*\.gallery-entry/);
+});
+
+test("history page uses scroll loading instead of numbered pagination", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /function renderVisibleGalleryGrid\(items\)/);
+  assert.match(source, /function visibleGalleryItems\(items\)/);
+  assert.match(source, /function renderVisibleMyGalleryGrid\(items\)/);
+  assert.match(source, /function visibleMyGalleryItems\(items\)/);
+  assert.match(source, /function renderVisibleHistoryGrid\(items\)/);
+  assert.match(source, /function visibleHistoryItems\(items\)/);
+  assert.match(source, /function handleMediaScroll\(event\)/);
+  assert.match(source, /function loadNextMediaPage\(scroller\)/);
+  assert.match(source, /scope: "gallery"/);
+  assert.match(source, /scope: "my-gallery"/);
+  assert.match(source, /scope: "history"/);
+  assert.match(source, /data-media-scroll="\$\{options\.scope\}"/);
+  assert.match(source, /data-history-scroll/);
+  assert.match(source, /data-media-load-more/);
+  assert.match(source, /items\.slice\(0, historyVisibleLimit\(\)\)/);
+  assert.doesNotMatch(source, /function renderHistoryPagination/);
+  assert.doesNotMatch(source, /data-history-page/);
+  assert.match(styleSource, /\.media-scroll-panel/);
+  assert.match(styleSource, /\.history-scroll-panel/);
+  assert.match(styleSource, /\.history-scroll-status/);
+});
+
+test("image gallery cards follow the reference card layout with metadata footers", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+
+  assert.match(source, /function renderGalleryCard\(options\)/);
+  assert.match(source, /class="gallery-card-preview"/);
+  assert.match(source, /class="gallery-card-body"/);
+  assert.match(source, /class="gallery-card-title"/);
+  assert.match(source, /class="gallery-card-date"/);
+  assert.match(source, /class="gallery-card-tag"/);
+  assert.match(styleSource, /\.gallery-card-body/);
+  assert.match(styleSource, /\.gallery-card-title/);
+  assert.match(styleSource, /\.gallery-card-date/);
+  assert.match(styleSource, /\.gallery-card-tag/);
+});
+
+test("gallery grids use adaptive masonry columns for mixed image ratios", async () => {
+  const source = await readFile(PUBLIC_APP_PATH, "utf8");
+  const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
+  const galleryGridBlock = extractCssRule(styleSource, ".gallery-grid", { index: "first" });
+  const galleryItemBlock = extractCssRule(styleSource, ".gallery-item", { index: "first" });
+
+  assert.match(galleryGridBlock, /display:\s*grid;/);
+  assert.match(galleryGridBlock, /grid-template-columns:\s*repeat\(auto-fill, minmax\(var\(--gallery-column-width\), 1fr\)\);/);
+  assert.match(galleryGridBlock, /grid-auto-rows:\s*var\(--gallery-row-unit\);/);
+  assert.match(galleryItemBlock, /grid-row-end:\s*span var\(--gallery-span, \d+\);/);
+  assert.match(source, /function layoutGalleryMasonry\(\)/);
+  assert.doesNotMatch(galleryGridBlock, /grid-template-columns:\s*repeat\(4, 1fr\);/);
 });
 
 test("wallet clicks and active navigation do not repeat loading animations", async () => {
@@ -489,7 +547,9 @@ test("wallet clicks and active navigation do not repeat loading animations", asy
 test("gallery photos use an inset premium frame without exterior borders", async () => {
   const styleSource = await readFile(PUBLIC_STYLE_PATH, "utf8");
 
-  assert.match(styleSource, /\.gallery-item\.is-active \{[\s\S]*box-shadow: none;/);
+  assert.match(styleSource, /\.gallery-item \{[\s\S]*grid-row-end: span var\(--gallery-span, \d+\);[\s\S]*background: rgba\(255, 255, 255, 0\.88\);/);
+  assert.match(styleSource, /\.gallery-item\.is-active \{[\s\S]*box-shadow: 0 0 0 2px/);
+  assert.match(styleSource, /\.gallery-card-preview/);
   assert.match(styleSource, /\.gallery-item > button:not\(\.gallery-card-action\) \{[\s\S]*width: 100%;[\s\S]*border: 0;/);
   assert.match(styleSource, /\.gallery-item > button:not\(\.gallery-card-action\)::before/);
   assert.match(styleSource, /-webkit-mask-composite: xor;/);

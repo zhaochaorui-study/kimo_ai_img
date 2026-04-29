@@ -9,8 +9,8 @@ export class GenerationRepository {
     const [result] = await connection.execute(
       `INSERT INTO generations
        (user_id, mode, prompt, negative_prompt, model_name, style_name, ratio,
-        quantity, cost_cents, status, is_public, reference_image_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        quantity, quality, output_format, output_compression, cost_cents, status, is_public, reference_image_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
       this.#createGenerationParams(generation)
     );
 
@@ -165,6 +165,9 @@ export class GenerationRepository {
       generation.styleName,
       generation.ratio,
       generation.quantity,
+      generation.quality ?? "auto",
+      generation.outputFormat ?? "png",
+      generation.outputCompression ?? 100,
       generation.costCents,
       generation.isPublic ? 1 : 0,
       generation.referenceImageName
@@ -182,6 +185,9 @@ export class GenerationRepository {
       styleName: row.style_name,
       ratio: row.ratio,
       quantity: row.quantity,
+      quality: row.quality,
+      outputFormat: row.output_format,
+      outputCompression: row.output_compression,
       costCents: row.cost_cents,
       status: row.status,
       queuePosition: row.queue_position === null || row.queue_position === undefined ? null : Number(row.queue_position),

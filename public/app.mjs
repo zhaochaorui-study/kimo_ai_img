@@ -37,8 +37,12 @@ const state = {
   isPublic: false,
   userMenuOpen: false,
   returnTo: "",
+  galleryPage: 1,
+  galleryPageSize: 16,
+  myGalleryPage: 1,
+  myGalleryPageSize: 16,
   historyPage: 1,
-  historyPageSize: 8,
+  historyPageSize: 16,
   historySelectedId: null,
   lightboxImage: null,
   authMode: "login",
@@ -53,7 +57,7 @@ const state = {
 const app = document.querySelector("#app");
 const IMAGE_LOAD_ATTRIBUTES = 'loading="lazy" decoding="async"';
 const REFERENCE_IMAGE_MAX_BYTES = 48 * 1024 * 1024;
-const DISABLED_SIDE_TARGETS = new Set(["settings"]);
+const DISABLED_SIDE_TARGETS = new Set();
 const AUTH_VIEW_SESSION_KEY = "create_img_auth_view";
 const AUTH_MIN_PASSWORD_LENGTH = 6;
 const AUTH_EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -65,6 +69,8 @@ const LOADING_SCOPE_HISTORY = "history";
 const GENERATION_STATUS_REFRESH_MS = 2500;
 const loadingJobs = new Map();
 let generationStatusTimer = null;
+let pendingMediaScrollScope = "";
+let pendingMediaScrollTop = null;
 
 // 初始化应用，优先恢复本地登录态
 async function boot() {
@@ -160,6 +166,7 @@ async function refreshHistory() {
 function applyHistoryItems(items) {
   state.history = items;
   state.historySelectedId = selectExistingOrFirst(state.historySelectedId, state.history);
+  clampHistoryLoadedPages();
   syncGeneratingStateFromHistory();
 }
 
@@ -247,6 +254,7 @@ async function refreshMyGallery() {
 
     state.myGallery = payload.items;
     state.selectedMyGalleryId = selectExistingOrFirst(state.selectedMyGalleryId, state.myGallery);
+    clampMyGalleryLoadedPages();
   });
 }
 
@@ -257,9 +265,11 @@ async function refreshPublicGallery() {
       const payload = await api("/api/public-gallery");
       state.gallery = payload.items;
       state.selectedId = selectExistingOrFirst(state.selectedId, state.gallery);
+      clampGalleryLoadedPages();
     } catch {
       state.gallery = [];
       state.selectedId = null;
+      clampGalleryLoadedPages();
     }
   });
 }
@@ -306,6 +316,54 @@ function clearRenderedRevealScopes() {
   state.revealScopes.clear();
 }
 
+// 为瀑布流网格里的每张卡片计算 grid-row 跨度，使得行优先排列也能补齐空隙
+function layoutGalleryMasonry() {
+  const grids = app.querySelectorAll(".gallery-grid");
+  if (!grids.length) return;
+
+  grids.forEach((grid) => {
+    const styles = window.getComputedStyle(grid);
+    const rowUnit = parseFloat(styles.getPropertyValue("grid-auto-rows")) || 8;
+    const rowGap = parseFloat(styles.getPropertyValue("row-gap")) || 0;
+
+    grid.querySelectorAll(".gallery-item").forEach((item) => {
+      const height = item.getBoundingClientRect().height;
+      if (!height) return;
+
+      const span = Math.max(1, Math.ceil((height + rowGap) / (rowUnit + rowGap)));
+      item.style.setProperty("--gallery-span", String(span));
+    });
+  });
+}
+
+// 图片加载完成后再次对齐瀑布流，避免首次渲染时因图片未载入导致的错位
+function observeGalleryMedia() {
+  const images = app.querySelectorAll(".gallery-grid img");
+
+  images.forEach((img) => {
+    if (img.complete) return;
+    img.addEventListener("load", layoutGalleryMasonry, { once: true });
+    img.addEventListener("error", layoutGalleryMasonry, { once: true });
+  });
+}
+
+let galleryResizeBound = false;
+function bindGalleryResize() {
+  if (galleryResizeBound) return;
+  galleryResizeBound = true;
+
+  let ticking = false;
+  window.addEventListener("resize", () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      layoutGalleryMasonry();
+      ticking = false;
+    });
+  });
+}
+bindGalleryResize();
+
 // 切换指定数据域的加载状态
 function setLoadingScope(scope, isLoading) {
   const alreadyLoading = state.loadingScopes.has(scope);
@@ -328,7 +386,10 @@ function isLoadingScope(scope) {
 function render() {
   app.innerHTML = state.view === "auth" ? renderAuth() : renderStudio();
   bindEvents();
+  restorePendingMediaScroll();
   clearRenderedRevealScopes();
+  layoutGalleryMasonry();
+  observeGalleryMedia();
 }
 
 // 渲染图片放大弹窗（Lightbox）
@@ -472,17 +533,13 @@ function renderStudio() {
 
 // 渲染顶部导航栏
 function renderTopbar() {
-  const balanceClass = isLoadingScope(LOADING_SCOPE_WALLET) ? "is-syncing" : "";
 
   return `
     <header class="topbar">
-      <div class="brand"><span class="brand-icon">🐱</span><span>创想图像工作室</span></div>
-      <nav class="top-nav" style="display:none">
-        ${topButton("gallery", "画廊")}
-      </nav>
+      <div class="brand"><span class="brand-icon">🐱</span><span>Kimo 工作室</span></div>
       <div class="top-actions">
         <button class="icon-btn" title="通知">${icon("bell")}</button>
-        ${state.user ? `<span class="mobile-balance ${balanceClass}" data-wallet-balance data-wallet-balance-suffix="credits">${state.user.balanceCents ?? 0} 积分</span>` : ""}
+        ${state.user ? `<span class="mobile-username">${state.user.username}</span>` : ""}
         ${state.user ? renderUserMenu() : `<button class="primary-btn" data-action="open-auth" style="width:auto;padding:0 18px;height:36px;font-size:13px">登录</button>`}
       </div>
     </header>
@@ -517,7 +574,6 @@ function renderSidebar() {
     ["gallery", "grid", "画廊"],
     ["my-gallery", "grid", "我的画廊"],
     ["history", "clock", "历史"],
-    ["settings", "settings", "设置"],
     ["feedback", "help", "帮助与反馈"]
   ] : [
     ["gallery", "grid", "画廊"]
@@ -953,22 +1009,18 @@ function renderProgress() {
 // 渲染画廊页面
 function renderGallery() {
   const isLoading = isLoadingScope(LOADING_SCOPE_GALLERY);
+  const items = galleryItems();
 
   return `
     <section class="gallery-layout">
-      <div>
-        <div class="gallery-toolbar">
-          <h2 class="gallery-title">画廊</h2>
-          <button class="chip is-active">全部</button>
-          <button class="chip">收藏</button>
-          <button class="chip">产品摄影</button>
-          <button class="chip">极简</button>
-          <button class="chip">概念设计</button>
-          <button class="chip">建筑</button>
-          <button class="chip">3D渲染</button>
-        </div>
-        ${isLoading ? renderGalleryLoadingGrid() : renderGalleryGrid(galleryItems(), renderGalleryItem, LOADING_SCOPE_GALLERY)}
-      </div>
+      ${renderMediaPanel({
+        scope: "gallery",
+        title: "画廊",
+        total: items.length,
+        toolbar: renderGalleryFilterChips(),
+        body: isLoading ? renderGalleryLoadingGrid() : renderVisibleGalleryGrid(items),
+        status: isLoading ? "" : renderMediaScrollStatus("gallery", items)
+      })}
       ${isLoading ? renderDetailLoadingPanel("正在加载画廊详情") : renderDetailPanel()}
     </section>
   `;
@@ -977,18 +1029,56 @@ function renderGallery() {
 // 渲染我的画廊页面，只展示当前用户已公开的图片
 function renderMyGallery() {
   const isLoading = isLoadingScope(LOADING_SCOPE_MY_GALLERY);
+  const items = myGalleryItems();
 
   return `
     <section class="gallery-layout">
-      <div>
-        <div class="gallery-toolbar">
-          <h2 class="gallery-title">我的画廊</h2>
-          <button class="chip is-active">已加入画廊</button>
-        </div>
-        ${isLoading ? renderGalleryLoadingGrid() : renderMyGalleryGrid()}
-      </div>
+      ${renderMediaPanel({
+        scope: "my-gallery",
+        title: "我的画廊",
+        total: items.length,
+        toolbar: "<button class=\"chip is-active\">已加入画廊</button>",
+        body: isLoading ? renderGalleryLoadingGrid() : renderMyGalleryGrid(),
+        status: isLoading || !items.length ? "" : renderMediaScrollStatus("my-gallery", items)
+      })}
       ${isLoading ? renderDetailLoadingPanel("正在加载我的画廊") : renderMyGalleryDetailPanel()}
     </section>
+  `;
+}
+
+// 渲染媒体列表滚动面板，统一画廊、我的画廊和历史页布局
+function renderMediaPanel(options) {
+  const panelClass = options.scope === "history" ? "media-scroll-panel history-scroll-panel" : "media-scroll-panel";
+  const historyAttr = options.scope === "history" ? " data-history-scroll" : "";
+
+  return `
+    <div class="${panelClass}" data-media-scroll="${options.scope}"${historyAttr}>
+      <div class="gallery-toolbar">
+        <h2 class="gallery-title">${options.title}</h2>
+        <span class="history-count">${formatMediaCount(options.total)}</span>
+        ${options.toolbar ?? ""}
+      </div>
+      ${options.body}
+      ${options.status ?? ""}
+    </div>
+  `;
+}
+
+// 格式化媒体列表数量文案
+function formatMediaCount(total) {
+  return Number.isFinite(Number(total)) ? `共 ${total} 条` : String(total);
+}
+
+// 渲染画廊筛选芯片，保持参考图顶部工具区的轻量入口
+function renderGalleryFilterChips() {
+  return `
+    <button class="chip is-active">全部</button>
+    <button class="chip">收藏</button>
+    <button class="chip">产品摄影</button>
+    <button class="chip">极简</button>
+    <button class="chip">概念设计</button>
+    <button class="chip">建筑</button>
+    <button class="chip">3D渲染</button>
   `;
 }
 
@@ -1000,7 +1090,17 @@ function renderMyGalleryGrid() {
     return "<p class=\"empty-state\">暂无加入画廊的图片。</p>";
   }
 
-  return renderGalleryGrid(items, renderMyGalleryItem, LOADING_SCOPE_MY_GALLERY);
+  return renderVisibleMyGalleryGrid(items);
+}
+
+// 渲染当前已加载的公共画廊图片网格
+function renderVisibleGalleryGrid(items) {
+  return renderGalleryGrid(visibleGalleryItems(items), renderGalleryItem, LOADING_SCOPE_GALLERY);
+}
+
+// 渲染当前已加载的我的画廊图片网格
+function renderVisibleMyGalleryGrid(items) {
+  return renderGalleryGrid(visibleMyGalleryItems(items), renderMyGalleryItem, LOADING_SCOPE_MY_GALLERY);
 }
 
 // 渲染图片网格，数据加载完成后仅播放一次逐项入场动画
@@ -1027,11 +1127,15 @@ function renderGalleryItem(item, index = 0) {
   const image = item.images?.[0] ?? "";
   const isActive = Number(state.selectedId) === Number(item.id);
 
-  return `
-    <article class="gallery-item gallery-entry ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="gallery" data-preview-id="${item.id}">
-      <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "生成图") : "<div class=\"mock-still-life\"></div>"}</button>
-    </article>
-  `;
+  return renderGalleryCard({
+    item,
+    index,
+    image,
+    isActive,
+    scope: "gallery",
+    selectAttribute: `data-select="${item.id}"`,
+    alt: "生成图"
+  });
 }
 
 // 渲染我的画廊单个项目，提供移出画廊入口
@@ -1039,13 +1143,31 @@ function renderMyGalleryItem(item, index = 0) {
   const image = item.images?.[0] ?? "";
   const isActive = Number(state.selectedMyGalleryId) === Number(item.id);
 
+  return renderGalleryCard({
+    item,
+    index,
+    image,
+    isActive,
+    scope: "my-gallery",
+    selectAttribute: `data-select="${item.id}"`,
+    alt: "我的画廊生成图",
+    action: `<button class="gallery-card-action gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除</button>`
+  });
+}
+
+// 渲染参考图风格的图片卡片，统一图片、标题、时间、标签和操作区
+function renderGalleryCard(options) {
+  const activeClass = options.isActive ? "is-active" : "";
+  const imageContent = options.image ? renderImageTag("", options.image, options.alt) : "<div class=\"mock-still-life\"></div>";
+
   return `
-    <article class="gallery-item gallery-entry my-gallery-item ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="my-gallery" data-preview-id="${item.id}">
-      <button data-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "我的画廊生成图") : "<div class=\"mock-still-life\"></div>"}</button>
-      <button class="gallery-card-action gallery-remove-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
+    <article class="gallery-item gallery-entry ${activeClass}" style="${createGalleryEntryStyle(options.index)}" data-preview-scope="${options.scope}" data-preview-id="${options.item.id}">
+      <button class="gallery-card-preview" ${options.selectAttribute} data-lightbox="${options.image}">${imageContent}</button>
     </article>
   `;
 }
+
+
 
 // 创建图片卡片渐进动画所需的 CSS 变量
 function createGalleryEntryStyle(index) {
@@ -1063,21 +1185,18 @@ function renderDetailPanel() {
       <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
-        <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
-        <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
-        <span>比例</span><strong>${escapeHtml(item.ratio)}</strong>
-        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
-        <span>种子</span><strong>${item.id}</strong>
-        <span>步数</span><strong>30</strong>
-        <span>CFG</span><strong>7.0</strong>
+        <span>模式</span><strong>${escapeHtml(item.mode || "—")}</strong>
+        <span>模型</span><strong>${escapeHtml(item.modelName || "—")}</strong>
+        <span>风格</span><strong>${escapeHtml(item.styleName || item.style || "—")}</strong>
+        <span>比例</span><strong>${escapeHtml(item.ratio || "—")}</strong>
+        <span>数量</span><strong>${item.quantity ?? 1}</strong>
+        <span>质量</span><strong>${escapeHtml(item.quality || "auto")}</strong>
+        <span>输出格式</span><strong>${escapeHtml(item.outputFormat || "png")}</strong>
+        <span>压缩等级</span><strong>${item.outputCompression ?? 100}</strong>
         <span>费用</span><strong>${item.costCents ?? 0} 积分</strong>
+        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
       </div>
-      <div class="tag-row" style="margin:14px 0">
-        <span class="tag">极简</span>
-        <span class="tag">产品摄影</span>
-        <span class="tag">自然光</span>
-        <span class="tag">米色</span>
-      </div>
+      ${item.negativePrompt ? `<div style="margin:10px 0"><span style="font-size:12px;color:var(--muted);font-weight:600">反向提示词</span><p style="font-size:13px;line-height:1.5;margin:4px 0 0;color:var(--ink)">${escapeHtml(item.negativePrompt)}</p></div>` : ""}
       <button class="secondary-btn" data-action="reuse-prompt" style="margin-bottom:8px">复用提示词</button>
       <button class="secondary-btn" data-action="download" style="margin-bottom:8px">下载</button>
     </aside>
@@ -1095,42 +1214,43 @@ function renderMyGalleryDetailPanel() {
       <div class="thumb" data-lightbox="${item.images?.[0] ?? ""}">${item.images?.[0] ? renderImageTag("generated-image", item.images[0], "我的画廊选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
-        <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
-        <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
-        <span>比例</span><strong>${escapeHtml(item.ratio)}</strong>
-        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
+        <span>模式</span><strong>${escapeHtml(item.mode || "—")}</strong>
+        <span>模型</span><strong>${escapeHtml(item.modelName || "—")}</strong>
+        <span>风格</span><strong>${escapeHtml(item.styleName || item.style || "—")}</strong>
+        <span>比例</span><strong>${escapeHtml(item.ratio || "—")}</strong>
+        <span>数量</span><strong>${item.quantity ?? 1}</strong>
+        <span>质量</span><strong>${escapeHtml(item.quality || "auto")}</strong>
+        <span>输出格式</span><strong>${escapeHtml(item.outputFormat || "png")}</strong>
+        <span>压缩等级</span><strong>${item.outputCompression ?? 100}</strong>
         <span>费用</span><strong>${item.costCents ?? 0} 积分</strong>
+        <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
       </div>
+      ${item.negativePrompt ? `<div style="margin:10px 0"><span style="font-size:12px;color:var(--muted);font-weight:600">反向提示词</span><p style="font-size:13px;line-height:1.5;margin:4px 0 0;color:var(--ink)">${escapeHtml(item.negativePrompt)}</p></div>` : ""}
       <button class="secondary-btn" data-action="download" style="margin-top:14px;margin-bottom:8px">下载</button>
       <button class="danger-btn" data-action="remove-from-my-gallery" data-remove-gallery="${item.id}">移除画廊</button>
     </aside>
   `;
 }
 
-// 渲染历史页面（瀑布流网格 + 右侧详情面板 + 分页）
+// 渲染历史页面（瀑布流网格 + 右侧详情面板 + 滚动加载）
 function renderDetail() {
   const isLoading = isLoadingScope(LOADING_SCOPE_HISTORY);
-  const items = state.history.filter((item) => item.status === "succeeded" && item.images?.length);
+  const items = successfulHistoryItems();
   const total = items.length;
 
   if (isLoading) return renderHistoryLoadingLayout();
   if (!total) return "<p class=\"empty-state\">暂无历史记录，先去生成一张。</p>";
 
-  const totalPages = Math.max(1, Math.ceil(total / state.historyPageSize));
-  const page = Math.min(state.historyPage, totalPages);
-  const start = (page - 1) * state.historyPageSize;
-  const pageItems = items.slice(start, start + state.historyPageSize);
-
   return `
     <section class="gallery-layout">
-      <div>
-        <div class="gallery-toolbar">
-          <h2 class="gallery-title">生成历史</h2>
-          <span class="history-count">共 ${total} 条</span>
-        </div>
-        ${renderGalleryGrid(pageItems, renderHistoryGridItem, LOADING_SCOPE_HISTORY)}
-        ${renderHistoryPagination(page, totalPages, total)}
-      </div>
+      ${renderMediaPanel({
+        scope: "history",
+        title: "生成历史",
+        total,
+        toolbar: "",
+        body: renderVisibleHistoryGrid(items),
+        status: renderHistoryScrollStatus(items)
+      })}
       ${renderHistoryDetailPanel()}
     </section>
   `;
@@ -1140,16 +1260,85 @@ function renderDetail() {
 function renderHistoryLoadingLayout() {
   return `
     <section class="gallery-layout">
-      <div>
-        <div class="gallery-toolbar">
-          <h2 class="gallery-title">生成历史</h2>
-          <span class="history-count">加载中</span>
-        </div>
-        ${renderGalleryLoadingGrid()}
-      </div>
+      ${renderMediaPanel({
+        scope: "history",
+        title: "生成历史",
+        total: "加载中",
+        toolbar: "",
+        body: renderGalleryLoadingGrid(),
+        status: ""
+      })}
       ${renderDetailLoadingPanel("正在加载历史详情")}
     </section>
   `;
+}
+
+// 渲染当前已加载的历史图片网格
+function renderVisibleHistoryGrid(items) {
+  return renderGalleryGrid(visibleHistoryItems(items), renderHistoryGridItem, LOADING_SCOPE_HISTORY);
+}
+
+// 筛选可用于历史瀑布流展示的成功记录
+function successfulHistoryItems() {
+  return state.history.filter((item) => item.status === "succeeded" && item.images?.length);
+}
+
+// 计算当前滚动加载已经允许展示的历史记录
+function visibleHistoryItems(items) {
+  return items.slice(0, historyVisibleLimit());
+}
+
+// 计算当前滚动加载已经允许展示的公共画廊记录
+function visibleGalleryItems(items) {
+  return items.slice(0, galleryVisibleLimit());
+}
+
+// 计算当前滚动加载已经允许展示的我的画廊记录
+function visibleMyGalleryItems(items) {
+  return items.slice(0, myGalleryVisibleLimit());
+}
+
+// 计算公共画廊当前可见记录上限
+function galleryVisibleLimit() {
+  return Math.max(1, state.galleryPage) * state.galleryPageSize;
+}
+
+// 计算我的画廊当前可见记录上限
+function myGalleryVisibleLimit() {
+  return Math.max(1, state.myGalleryPage) * state.myGalleryPageSize;
+}
+
+// 计算历史页当前可见记录上限
+function historyVisibleLimit() {
+  return Math.max(1, state.historyPage) * state.historyPageSize;
+}
+
+// 渲染历史滚动加载状态提示
+function renderHistoryScrollStatus(items) {
+  return renderMediaScrollStatus("history", items);
+}
+
+// 渲染媒体滚动加载状态提示
+function renderMediaScrollStatus(scope, items) {
+  const visibleCount = visibleMediaItems(scope, items).length;
+  const hasMore = visibleCount < items.length;
+  const text = hasMore ? "继续向下滚动加载更多" : "已展示全部历史";
+  const historyAttr = scope === "history" ? ` data-history-load-more="${hasMore ? "true" : "false"}"` : "";
+
+  return `
+    <div class="history-scroll-status" data-media-load-more="${hasMore ? "true" : "false"}"${historyAttr}>
+      <span>${text}</span>
+      <strong>${visibleCount} / ${items.length}</strong>
+    </div>
+  `;
+}
+
+// 按媒体域返回当前已经展示的记录
+function visibleMediaItems(scope, items) {
+  if (scope === "gallery") return visibleGalleryItems(items);
+  if (scope === "my-gallery") return visibleMyGalleryItems(items);
+
+  return visibleHistoryItems(items);
 }
 
 // 渲染历史瀑布流网格项
@@ -1158,12 +1347,16 @@ function renderHistoryGridItem(item, index = 0) {
   const isActive = state.historySelectedId === item.id;
   const isPublic = item.isPublic;
 
-  return `
-    <article class="gallery-item gallery-entry ${isActive ? "is-active" : ""}" style="${createGalleryEntryStyle(index)}" data-preview-scope="history" data-preview-id="${item.id}">
-      <button data-history-select="${item.id}" data-lightbox="${image}">${image ? renderImageTag("", image, "历史图片") : "<div class=\"mock-still-life\"></div>"}</button>
-      <button class="gallery-card-action gallery-toggle-btn ${isPublic ? "is-active" : ""}" data-action="toggle-public" data-toggle-public="${item.id}">${isPublic ? "移出画廊" : "加入公共画廊"}</button>
-    </article>
-  `;
+  return renderGalleryCard({
+    item,
+    index,
+    image,
+    isActive,
+    scope: "history",
+    selectAttribute: `data-history-select="${item.id}"`,
+    alt: "历史图片",
+    action: `<button class="gallery-card-action gallery-toggle-btn ${isPublic ? "is-active" : ""}" data-action="toggle-public" data-toggle-public="${item.id}">${isPublic ? "移出" : "公开"}</button>`
+  });
 }
 
 // 渲染历史右侧详情面板
@@ -1180,11 +1373,16 @@ function renderHistoryDetailPanel() {
       <div class="thumb" data-lightbox="${images[0] ?? ""}">${images[0] ? renderImageTag("generated-image", images[0], "选中图") : "<div class=\"mock-still-life\"></div>"}</div>
       <p style="font-size:14px;line-height:1.6;margin:0 0 12px">${escapeHtml(item.prompt || "未填写提示词")}</p>
       <div class="meta-list">
-        <span>模型</span><strong>${escapeHtml(item.modelName)}</strong>
-        <span>风格</span><strong>${escapeHtml(item.style || "产品摄影")}</strong>
-        <span>比例</span><strong>${escapeHtml(item.ratio)}</strong>
+        <span>模式</span><strong>${escapeHtml(item.mode || "—")}</strong>
+        <span>模型</span><strong>${escapeHtml(item.modelName || "—")}</strong>
+        <span>风格</span><strong>${escapeHtml(item.styleName || item.style || "—")}</strong>
+        <span>比例</span><strong>${escapeHtml(item.ratio || "—")}</strong>
+        <span>数量</span><strong>${item.quantity ?? 1}</strong>
+        <span>质量</span><strong>${escapeHtml(item.quality || "auto")}</strong>
+        <span>输出格式</span><strong>${escapeHtml(item.outputFormat || "png")}</strong>
+        <span>压缩等级</span><strong>${item.outputCompression ?? 100}</strong>
+        <span>费用</span><strong>${item.costCents ?? 0} 积分</strong>
         <span>生成时间</span><strong>${formatDate(item.createdAt)}</strong>
-        <span>消耗积分</span><strong>${item.costCents ?? 0}</strong>
       </div>
       <button class="secondary-btn" data-action="download" style="margin-top:14px;margin-bottom:8px">下载</button>
       <button class="danger-btn" data-action="delete-item">删除</button>
@@ -1216,35 +1414,6 @@ function renderDetailLoadingPanel(label) {
   `;
 }
 
-// 渲染历史分页控件
-function renderHistoryPagination(page, totalPages, total) {
-  if (totalPages <= 1) return "";
-
-  const pages = [];
-  const maxVisible = 5;
-  let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-
-  if (endPage - startPage + 1 < maxVisible) {
-    startPage = Math.max(1, endPage - maxVisible + 1);
-  }
-
-  for (let i = startPage; i <= endPage; i++) {
-    pages.push(`<button class="page-btn ${i === page ? "is-active" : ""}" data-history-page="${i}">${i}</button>`);
-  }
-
-  return `
-    <div class="history-pagination" style="margin-top:12px">
-      <button class="page-btn" data-history-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
-      ${startPage > 1 ? "<span class=\"page-ellipsis\">…</span>" : ""}
-      ${pages.join("")}
-      ${endPage < totalPages ? "<span class=\"page-ellipsis\">…</span>" : ""}
-      <button class="page-btn" data-history-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
-      <span class="page-info">${page} / ${totalPages} 页</span>
-    </div>
-  `;
-}
-
 // 渲染选择控件
 function renderSelect(key, options) {
   return `<select data-select-key="${key}">${options.map((item) => `<option ${state[key] === item ? "selected" : ""}>${item}</option>`).join("")}</select>`;
@@ -1260,6 +1429,7 @@ let clickDelegated = false;
 let keydownDelegated = false;
 let hoverDelegated = false;
 let documentClickDelegated = false;
+let scrollDelegated = false;
 
 // 绑定页面事件
 function bindEvents() {
@@ -1284,6 +1454,11 @@ function bindEvents() {
   if (!documentClickDelegated) {
     document.addEventListener("click", handleDocumentClick);
     documentClickDelegated = true;
+  }
+  if (!scrollDelegated) {
+    // 调用媒体滚动监听函数，在接近底部时追加下一批图片
+    app.addEventListener("scroll", handleMediaScroll, true);
+    scrollDelegated = true;
   }
 
   app.querySelectorAll("[data-select-key]").forEach((node) => node.addEventListener("change", () => { updateState(node.dataset.selectKey, node.value); render(); }));
@@ -1332,13 +1507,6 @@ function handleAppClick(event) {
   const toggle = event.target.closest("[data-toggle]");
   if (toggle) { toggleSetting(toggle.dataset.toggle); return; }
 
-  const historyPageBtn = event.target.closest("[data-history-page]");
-  if (historyPageBtn) {
-    const page = Number(historyPageBtn.dataset.historyPage);
-    if (page >= 1) { state.historyPage = page; render(); }
-    return;
-  }
-
   const historySelect = event.target.closest("[data-history-select]");
   if (historySelect) {
     state.historySelectedId = Number(historySelect.dataset.historySelect);
@@ -1365,6 +1533,133 @@ function handleAppClick(event) {
   else if (name === "remove-from-my-gallery") removeFromMyGallery(action);
   else if (name === "toggle-public") togglePublic(action);
   else if (name === "delete-item") deleteSelectedItem();
+}
+
+// 处理历史页滚动事件，兼容已有历史滚动入口
+function handleHistoryScroll(event) {
+  handleMediaScroll(event);
+}
+
+// 处理媒体滚动事件，接近底部时触发对应列表追加渲染
+function handleMediaScroll(event) {
+  const scroller = event.target.closest?.("[data-media-scroll]");
+
+  if (!scroller || !isActiveMediaScroller(scroller)) return;
+  if (!isNearScrollBottom(scroller)) return;
+
+  // 调用媒体追加函数，让瀑布流继续展示后续记录
+  loadNextMediaPage(scroller);
+}
+
+// 判断滚动容器是否属于当前正在展示的媒体视图
+function isActiveMediaScroller(scroller) {
+  return scroller.dataset.mediaScroll === state.view;
+}
+
+// 判断滚动容器是否已经接近底部
+function isNearScrollBottom(scroller) {
+  const threshold = Math.max(180, scroller.clientHeight * 0.28);
+
+  return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - threshold;
+}
+
+// 追加下一批历史记录并保持当前滚动位置
+function loadNextHistoryPage(scroller) {
+  loadNextMediaPage(scroller);
+}
+
+// 追加下一批媒体记录并保持当前滚动位置
+function loadNextMediaPage(scroller) {
+  const scope = scroller.dataset.mediaScroll;
+
+  if (!hasMoreMediaItems(scope)) return;
+
+  // 调用滚动位置记录函数，避免整页重渲染后跳回顶部
+  rememberMediaScrollTop(scroller);
+  incrementMediaPage(scope);
+  render();
+}
+
+// 判断历史页是否还有未展示记录
+function hasMoreHistoryItems() {
+  return hasMoreMediaItems("history");
+}
+
+// 判断指定媒体列表是否还有未展示记录
+function hasMoreMediaItems(scope) {
+  const items = mediaItemsByScope(scope);
+
+  return visibleMediaItems(scope, items).length < items.length;
+}
+
+// 记录历史滚动容器当前位置，供渲染后恢复
+function rememberHistoryScrollTop(scroller) {
+  rememberMediaScrollTop(scroller);
+}
+
+// 记录媒体滚动容器当前位置，供渲染后恢复
+function rememberMediaScrollTop(scroller) {
+  pendingMediaScrollScope = scroller.dataset.mediaScroll;
+  pendingMediaScrollTop = scroller.scrollTop;
+}
+
+// 恢复媒体滚动位置，保障滚动加载时视线不跳动
+function restorePendingMediaScroll() {
+  if (pendingMediaScrollTop === null) return;
+
+  const scroller = app.querySelector(`[data-media-scroll="${pendingMediaScrollScope}"]`);
+  if (scroller) scroller.scrollTop = pendingMediaScrollTop;
+  pendingMediaScrollScope = "";
+  pendingMediaScrollTop = null;
+}
+
+// 恢复历史滚动位置，兼容已有历史恢复入口
+function restorePendingHistoryScroll() {
+  restorePendingMediaScroll();
+}
+
+// 增加指定媒体域的可见页数
+function incrementMediaPage(scope) {
+  if (scope === "gallery") {
+    state.galleryPage += 1;
+    return;
+  }
+  if (scope === "my-gallery") {
+    state.myGalleryPage += 1;
+    return;
+  }
+
+  state.historyPage += 1;
+}
+
+// 返回指定媒体域的完整列表
+function mediaItemsByScope(scope) {
+  if (scope === "gallery") return galleryItems();
+  if (scope === "my-gallery") return myGalleryItems();
+
+  return successfulHistoryItems();
+}
+
+// 收敛历史加载页数，避免数据刷新后保留一个越界页码
+function clampHistoryLoadedPages() {
+  state.historyPage = clampMediaPage(state.historyPage, successfulHistoryItems().length, state.historyPageSize);
+}
+
+// 收敛公共画廊加载页数，避免数据刷新后保留一个越界页码
+function clampGalleryLoadedPages() {
+  state.galleryPage = clampMediaPage(state.galleryPage, galleryItems().length, state.galleryPageSize);
+}
+
+// 收敛我的画廊加载页数，避免数据刷新后保留一个越界页码
+function clampMyGalleryLoadedPages() {
+  state.myGalleryPage = clampMediaPage(state.myGalleryPage, myGalleryItems().length, state.myGalleryPageSize);
+}
+
+// 根据总数和页大小收敛媒体列表页码
+function clampMediaPage(page, total, pageSize) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  return Math.min(Math.max(1, page), totalPages);
 }
 
 // 处理画廊图片悬停预览，避免用户必须点击后才能看到详情
@@ -1890,7 +2185,7 @@ function handleReferenceFile(event) {
 
 // 需要登录才能访问的视图
 const AUTH_REQUIRED_VIEWS = new Set(["workspace", "my-gallery", "history", "resources"]);
-const AUTH_REQUIRED_SIDES = new Set(["workspace", "workspace-edit", "my-gallery", "history", "models", "styles", "settings"]);
+const AUTH_REQUIRED_SIDES = new Set(["workspace", "workspace-edit", "my-gallery", "history", "models", "styles"]);
 
 // 切换主视图
 function setView(view) {
